@@ -1,11 +1,11 @@
-"""Cœur métier de l'inscription : hachage Argon2id, création compte + session,
-détection d'identifiant déjà pris (insensible à la casse)."""
+"""Cœur métier de l'inscription et de la connexion : hachage Argon2id,
+création compte + session, authentification à temps constant, détection
+d'identifiant déjà pris (insensible à la casse)."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-
 from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from argon2.low_level import Type
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -15,10 +15,19 @@ from ..config import Settings
 from ..errors import AppError
 from ..models.account import IDENTIFIANT_MAX_LENGTH, Account
 from ..models.session import Session as SessionModel
+from .sessions import create_session
 
+# Mot de passe factice utilisé pour vérifier un hachage bidon quand
+# l'identifiant est inconnu (cf. `authenticate_account`) : peu importe sa
+# valeur, il n'est jamais comparé à une vraie saisie utilisateur.
+_DUMMY_PASSWORD = "mot-de-passe-factice-pour-temps-constant"
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+# Singleton paresseux, calculé une seule fois avec les paramètres Argon2id
+# courants : recalculer ce hachage à chaque tentative referait tout le
+# travail qu'il est censé éviter. (Pas de cache par instance de `Settings` :
+# un dict gardé par `id(settings)` serait fragile -- réutilisation d'un id
+# après garbage collection, ou `Settings()` reconstruite en test.)
+_dummy_hash: str | None = None
 
 
 def _build_hasher(settings: Settings) -> PasswordHasher:
@@ -112,13 +121,48 @@ def register_account(
         # la vraie garantie d'unicité est l'index fonctionnel en base.
         raise _identifiant_indisponible(identifiant) from exc
 
-    now = _utcnow()
-    session = SessionModel(
-        account_id=account.id,
-        created_at=now,
-        expires_at=now + timedelta(days=settings.session_duration_days),
-    )
-    db.add(session)
+    session = create_session(db, account_id=account.id, settings=settings)
     db.commit()
 
     return account, session
+
+
+def _dummy_password_hash(settings: Settings) -> str:
+    """Hachage bidon vérifié quand l'identifiant est inconnu, pour qu'un
+    identifiant inconnu et un mot de passe erroné prennent le même temps."""
+    global _dummy_hash
+    if _dummy_hash is None:
+        _dummy_hash = _build_hasher(settings).hash(_DUMMY_PASSWORD)
+    return _dummy_hash
+
+
+def authenticate_account(db: DBSession, *, identifiant: str, mot_de_passe: str, settings: Settings) -> Account:
+    """Vérifie identifiant + mot de passe ; lève `AppError` 401 générique
+    (`IDENTIFIANTS_INVALIDES`) pour un identifiant inconnu OU un mot de passe
+    faux, sans jamais distinguer les deux cas dans la réponse ni le timing.
+
+    La défense temporelle repose sur le fait qu'un hachage Argon2id est
+    *toujours* vérifié, que l'identifiant existe ou non (contre un hachage
+    factice dans le second cas) : le coût de la vérification ne dépend donc
+    jamais de la cause de l'échec.
+    """
+    hasher = _build_hasher(settings)
+    account = db.execute(
+        select(Account).where(func.lower(Account.identifiant) == identifiant.strip().lower())
+    ).scalar_one_or_none()
+
+    password_hash = account.password_hash if account is not None else _dummy_password_hash(settings)
+
+    try:
+        hasher.verify(password_hash, mot_de_passe)
+        mot_de_passe_correct = True
+    except (VerifyMismatchError, VerificationError, InvalidHashError):
+        # `InvalidHashError` hérite de `ValueError` (pas de `VerificationError`) :
+        # un `password_hash` corrompu/malformé en base doit, lui aussi, retomber
+        # sur l'échec générique plutôt que sur une 500 imprévue.
+        mot_de_passe_correct = False
+
+    if account is None or not mot_de_passe_correct:
+        raise AppError(401, "IDENTIFIANTS_INVALIDES", "Identifiant ou mot de passe incorrect.", {})
+
+    return account

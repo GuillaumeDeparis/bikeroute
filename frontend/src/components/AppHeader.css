@@ -1,0 +1,65 @@
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.app-header__marque {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #2a6f4d;
+}
+
+.app-header__compte {
+  position: relative;
+}
+
+.app-header__bouton-compte {
+  font-size: 0.95rem;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #888;
+  border-radius: 0.25rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+.app-header__menu {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  min-width: 8rem;
+  border: 1px solid #ddd;
+  border-radius: 0.25rem;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  z-index: 1;
+}
+
+.app-header__menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 0.95rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.app-header__menu button:hover:not(:disabled) {
+  background: #f2f2f2;
+}
+
+.app-header__menu button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.app-header__erreur {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: #c62828;
+  font-size: 0.85rem;
+}

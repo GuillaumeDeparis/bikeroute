@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-21-2026 23:00
-last_updated: 08-22-2026
+last_updated: 08-23-2026
 project: bikeroute
 project_key: NOKEY
 tracking_system: file-system
@@ -38,7 +38,7 @@ story_location:
 development_status:
   epic-1: in-progress
   1-1-inscription-d-un-nouveau-compte: review
-  1-2-connexion-et-session-utilisateur: backlog
+  1-2-connexion-et-session-utilisateur: review
   1-3-isolation-des-données-par-compte: backlog
   1-4-accueil-de-synthèse-et-interface-adaptative: backlog
   epic-1-retrospective: optional

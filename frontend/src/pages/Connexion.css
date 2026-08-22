@@ -1,44 +1,44 @@
-.inscription {
+.connexion {
   max-width: 24rem;
   margin: 4rem auto;
   padding: 0 1.5rem;
 }
 
-.inscription form {
+.connexion form {
   display: flex;
   flex-direction: column;
   gap: 1rem;
 }
 
-.inscription .champ {
+.connexion .champ {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   min-height: 4.5rem;
 }
 
-.inscription label {
+.connexion label {
   font-weight: 600;
 }
 
-.inscription input {
+.connexion input {
   font-size: 1rem;
   padding: 0.5rem 0.65rem;
   border: 1px solid #888;
   border-radius: 0.25rem;
 }
 
-.inscription input[aria-invalid='true'] {
+.connexion input[aria-invalid='true'] {
   border-color: #c62828;
 }
 
-.inscription .erreur {
+.connexion .erreur {
   color: #c62828;
   font-size: 0.875rem;
   margin: 0;
 }
 
-.inscription button[type='submit'] {
+.connexion button[type='submit'] {
   font-size: 1rem;
   padding: 0.6rem 1rem;
   border: none;
@@ -48,12 +48,12 @@
   cursor: pointer;
 }
 
-.inscription button[type='submit']:disabled {
+.connexion button[type='submit']:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.inscription__lien {
+.connexion__lien {
   margin-top: 1.5rem;
   font-size: 0.9rem;
 }

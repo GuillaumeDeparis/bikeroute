@@ -30,12 +30,16 @@ function validateMotDePasse(motDePasse: string, identifiant: string): string | u
   return undefined
 }
 
-export function Inscription() {
+interface InscriptionProps {
+  onInscrit: (identifiant: string) => void
+  onAllerConnexion: () => void
+}
+
+export function Inscription({ onInscrit, onAllerConnexion }: InscriptionProps) {
   const [identifiant, setIdentifiant] = useState('')
   const [motDePasse, setMotDePasse] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [submitting, setSubmitting] = useState(false)
-  const [identifiantConnecte, setIdentifiantConnecte] = useState<string | null>(null)
 
   function handleBlurIdentifiant() {
     setErrors((prev) => ({ ...prev, identifiant: validateIdentifiant(identifiant) }))
@@ -74,7 +78,9 @@ export function Inscription() {
     setErrors({})
     try {
       const result = await registerAccount({ identifiant, motDePasse })
-      setIdentifiantConnecte(result.identifiant)
+      // Rejoint directement l'Accueil (une seule expérience post-authentification,
+      // partagée avec la connexion) plutôt qu'un message inline (cf. Design Notes).
+      onInscrit(result.identifiant)
     } catch (error) {
       setMotDePasse('')
       if (error instanceof ApiError) {
@@ -92,15 +98,6 @@ export function Inscription() {
     } finally {
       setSubmitting(false)
     }
-  }
-
-  if (identifiantConnecte) {
-    return (
-      <main className="inscription">
-        <h1>Bienvenue, {identifiantConnecte}</h1>
-        <p>Votre compte a été créé et vous êtes connecté.</p>
-      </main>
-    )
   }
 
   return (
@@ -151,6 +148,13 @@ export function Inscription() {
           {submitting ? 'Création du compte…' : 'Créer mon compte'}
         </button>
       </form>
+
+      <p className="inscription__lien">
+        Déjà un compte ?{' '}
+        <button type="button" className="lien" onClick={onAllerConnexion}>
+          Se connecter
+        </button>
+      </p>
     </main>
   )
 }
