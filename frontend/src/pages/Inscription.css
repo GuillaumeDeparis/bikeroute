@@ -1,0 +1,54 @@
+.inscription {
+  max-width: 24rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+
+.inscription form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.inscription .champ {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 4.5rem;
+}
+
+.inscription label {
+  font-weight: 600;
+}
+
+.inscription input {
+  font-size: 1rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #888;
+  border-radius: 0.25rem;
+}
+
+.inscription input[aria-invalid='true'] {
+  border-color: #c62828;
+}
+
+.inscription .erreur {
+  color: #c62828;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.inscription button {
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+}
+
+.inscription button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

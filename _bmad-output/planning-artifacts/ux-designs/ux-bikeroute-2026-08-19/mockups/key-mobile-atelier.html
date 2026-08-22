@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bikeroute — Atelier mobile</title>
+<style>
+/* Gouverné par DESIGN.md: Colors, Typography, Layout mobile, Components (Bottom sheet, Compass, Input, Checkbox, Primary button). EXPERIENCE.md: Responsive/Smartphone, Bottom sheet, State Patterns/Atelier recalcul, UJ-2 étapes 4–7. */
+:root{--canvas:#EEF3F6;--map:#E8EFF3;--surface:#FFF;--subtle:#F7FAFB;--ink:#17324D;--secondary:#4A6478;--muted:#5F7888;--border:#CBD8DF;--route:#F05A28;--interactive:#C94718;--route2:#7895A5;--info:#E5F1F7}*{box-sizing:border-box}body{margin:0;background:var(--canvas);font:15px/1.5 system-ui,sans-serif;color:var(--ink)}.stage{min-height:100vh;display:flex;gap:44px;justify-content:center;align-items:center;padding:25px}.column{text-align:center}.column h2{font-size:20px;margin:0 0 10px}.phone{width:390px;height:820px;border:9px solid var(--ink);border-radius:38px;overflow:hidden;position:relative;background:var(--map);box-shadow:0 14px 38px #17324D22;text-align:left}.map{position:absolute;inset:0}.map svg{width:100%;height:100%}.top{position:absolute;top:14px;left:14px;right:14px;display:flex;justify-content:space-between}.logo,.compass{background:white;box-shadow:0 6px 18px #17324D22}.logo{border-radius:12px;padding:9px 12px;font-weight:800}.compass{width:45px;height:45px;border-radius:50%;display:grid;place-items:center;font-size:11px}.sheet{position:absolute;left:12px;right:12px;bottom:12px;background:white;border-radius:24px;padding:12px 16px 18px;box-shadow:0 -12px 30px #17324D22}.handle{width:48px;height:5px;background:var(--border);border-radius:999px;margin:0 auto 12px}.switch{display:flex;background:var(--canvas);padding:4px;border-radius:12px}.switch span{flex:1;text-align:center;padding:7px;border-radius:8px}.switch .on{background:var(--ink);color:white}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:12px 0}.metric{background:var(--canvas);border-radius:8px;text-align:center;padding:7px;font-size:11px}.metric b{font-size:15px;display:block}.status{background:var(--info);border-radius:12px;padding:9px 11px;font-size:12px}.points{font-size:13px;line-height:1.7;margin:9px 0}.row{display:flex;justify-content:space-between}.link{color:var(--interactive);font-weight:650}.btn{width:100%;background:var(--interactive);color:white;border:0;border-radius:12px;padding:11px;font-weight:650;margin-top:8px}.back{font-weight:750;margin-bottom:12px}.label{font-size:13px;font-weight:650;margin-top:10px}.select{border:1px solid var(--border);border-radius:12px;padding:9px;margin-top:4px;font-size:13px}.check{font-size:13px;padding:5px 0}.note{font-size:12px;color:var(--secondary);margin-top:9px}
+/* Expanded metric bubble: compact summary carries chevron; open state reveals metrics and a continuous representative elevation curve. */
+.bubble-summary{display:flex;align-items:center;justify-content:space-between;margin-top:10px}.compact-bubble{position:absolute;left:28px;right:28px;top:330px;background:var(--surface);border-radius:9999px;padding:10px 15px;box-shadow:0 8px 24px #17324D22;font-size:13px;font-weight:650;display:flex;justify-content:space-between}.chevron{font-size:12px}.elevation{width:100%;height:52px;margin-top:4px}.elevation path{fill:none;stroke:var(--route);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<main class="stage">
+<section class="column">
+<h2>Atelier · bottom sheet principale</h2>
+<div class="phone">
+<div class="map">
+<svg viewBox="0 0 390 820">
+<rect width="390" height="820" fill="#E8EFF3"/>
+<g stroke="#CBD8DF" fill="none">
+<path d="M0 100Q190 180 390 70M0 260Q180 330 390 220M0 430Q200 510 390 410"/>
+</g>
+<path d="M50 360C100 90 340 110 350 340S120 550 50 360" fill="none" stroke="#7895A5" stroke-width="8" opacity=".35"/>
+<path d="M50 360C110 120 320 120 335 340S130 530 50 360" fill="none" stroke="#F05A28" stroke-width="7"/>
+<circle cx="50" cy="360" r="9" fill="#fff" stroke="#17324D" stroke-width="4"/>
+</svg>
+</div>
+<div class="top">
+<div class="logo">bikeroute</div>
+<div class="compass">N<br>▲</div>
+</div>
+<div class="compact-bubble"><span>54,2 km · 830 m D+ · 2 h 40</span><span>▴</span></div>
+<section class="sheet">
+<div class="handle">
+</div>
+<div class="switch">
+<span class="on">Manuel</span>
+<span>Assisté</span>
+</div>
+<div class="bubble-summary"><b>Détails du parcours</b><span class="chevron">▾</span></div>
+<div class="metrics">
+<div class="metric">
+<b>54,2 km</b>distance</div>
+<div class="metric">
+<b>830 m</b>D+</div>
+<div class="metric">
+<b>2 h 40</b>durée</div>
+</div>
+<svg class="elevation" viewBox="0 0 340 52" preserveAspectRatio="none" aria-label="Profil altimétrique en courbe continue">
+<path d="M0 44 C30 42,50 30,70 32 S105 8,132 14 S165 42,190 28 S225 6,252 14 S292 42,340 34"/>
+</svg>
+<div class="status">Mise à jour… Le dernier tracé reste visible.</div>
+<div class="points">
+<div class="row">
+<b>Multi-étapes · 8 points</b>
+<span class="link">Voir tout</span>
+</div>Départ choisi · Col de la Croix · Destination</div>
+<button class="btn">Enregistrer</button>
+<div class="row note">
+<span>↶ Annuler</span>
+<span class="link">Options ›</span>
+</div>
+</section>
+</div>
+</section>
+<section class="column">
+<h2>État secondaire · Options</h2>
+<div class="phone">
+<div class="map">
+<svg viewBox="0 0 390 820">
+<rect width="390" height="820" fill="#E8EFF3"/>
+<path d="M50 360C110 120 320 120 335 340S130 530 50 360" fill="none" stroke="#F05A28" stroke-width="7"/>
+</svg>
+</div>
+<div class="top">
+<div class="logo">bikeroute</div>
+<div class="compass">N<br>▲</div>
+</div>
+<section class="sheet">
+<div class="handle">
+</div>
+<div class="back">← Retour au parcours　　Options</div>
+<div class="label">Préférences routières</div>
+<div class="check">☑ Éviter les grands axes</div>
+<div class="check">☑ Favoriser les routes secondaires</div>
+<div class="check">☐ Favoriser les pistes cyclables</div>
+<div class="label">Revêtement</div>
+<div class="select">Goudronné privilégié　⌄</div>
+<div class="label">Dénivelé maximal</div>
+<div class="select">900 m D+　⌄</div>
+<button class="btn">Appliquer</button>
+<div class="note">Le tracé reste visible pendant le recalcul. Retour restaure la vue principale.</div>
+</section>
+</div>
+</section>
+</main>
+</body>
+</html>

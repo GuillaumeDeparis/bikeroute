@@ -1,0 +1,69 @@
+services:
+  db:
+    image: postgres:18.4
+    environment:
+      POSTGRES_USER: bikeroute
+      POSTGRES_PASSWORD: bikeroute
+      POSTGRES_DB: bikeroute
+    ports:
+      # Port hôte non standard pour ne pas entrer en conflit avec un
+      # PostgreSQL local déjà présent sur le 5432 par défaut.
+      - '5433:5432'
+    volumes:
+      # PostgreSQL 18+ : monter /var/lib/postgresql (pas .../data), cf.
+      # https://github.com/docker-library/postgres/pull/1259.
+      - bikeroute_db_data:/var/lib/postgresql
+    healthcheck:
+      # `pg_isready` seul rapporte "accepting connections" dès le serveur
+      # temporaire de bootstrap (avant que POSTGRES_DB ne soit créée), ce qui
+      # fait parfois démarrer `api` avant que la base "bikeroute" n'existe
+      # réellement. On exige donc une requête qui réussit uniquement contre
+      # le serveur final, sur la base applicative elle-même.
+      test: ['CMD-SHELL', 'psql -U bikeroute -d bikeroute -c "SELECT 1" > /dev/null 2>&1']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  api:
+    build:
+      context: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # DSN et réglages jamais en dur dans le code : cf. backend/app/config.py.
+      DATABASE_URL: postgresql+psycopg://bikeroute:bikeroute@db:5432/bikeroute
+      SESSION_DURATION_DAYS: '14'
+      SESSION_COOKIE_NAME: session_id
+      PASSWORD_MIN_LENGTH: '10'
+      PASSWORD_MAX_LENGTH: '128'
+    ports:
+      - '8000:8000'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      # node_modules reste interne au conteneur : sans cette exclusion, le
+      # `npm install` Linux/Alpine écraserait le node_modules de l'hôte
+      # (problématique en particulier sur un hôte non-Linux).
+      - /app/node_modules
+    command: sh -c "npm install && npm run dev -- --host"
+    environment:
+      # Le trajet interne Vite -> api reste en HTTP sur le réseau Docker ;
+      # seule l'origine https://localhost:5173 vue par le navigateur compte
+      # pour la politique de cookie Secure (cf. Design Notes de spec-1-1).
+      VITE_API_PROXY_TARGET: http://api:8000
+    ports:
+      - '5173:5173'
+    depends_on:
+      - api
+
+volumes:
+  bikeroute_db_data:

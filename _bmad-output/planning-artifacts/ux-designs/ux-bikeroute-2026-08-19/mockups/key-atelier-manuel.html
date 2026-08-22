@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>bikeroute — Atelier manuel</title>
+<style>
+/* Gouverné par DESIGN.md: Brand & Style, Colors, Typography, Layout & Spacing, Components (Primary panel, Secondary inspector, Metric bubble, Elevation drawer, Route point). EXPERIENCE.md: IA/Atelier, Component Patterns, State Patterns/Atelier recalcul, UJ-2 étapes 4–8. */
+:root{--canvas:#EEF3F6;--map:#E8EFF3;--surface:#FFFFFF;--subtle:#F7FAFB;--ink:#17324D;--secondary:#4A6478;--muted:#5F7888;--border:#CBD8DF;--route:#F05A28;--interactive:#C94718;--route2:#7895A5;--info:#E5F1F7}*{box-sizing:border-box}body{margin:0;background:var(--canvas);font:15px/1.5 system-ui,sans-serif;color:var(--ink)}.browser{width:min(1440px,96vw);height:900px;margin:24px auto;background:var(--surface);border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 14px 38px #17324D22}.header{height:58px;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--border)}.brand{font-size:20px;font-weight:800}.trail{margin-left:22px;color:var(--secondary);font-size:13px}.account{margin-left:auto}.map{position:relative;height:842px;background:var(--map);overflow:hidden}.map>svg{width:100%;height:100%;position:absolute;inset:0}.panel,.inspector{position:absolute;top:20px;background:var(--surface);box-shadow:0 14px 38px #17324D22}.panel{left:20px;width:350px;height:720px;border-radius:24px;padding:16px}.inspector{left:382px;width:285px;height:610px;border-radius:18px;padding:18px;box-shadow:0 12px 30px #17324D22}.switch{display:flex;background:var(--canvas);padding:4px;border-radius:12px}.switch span{flex:1;text-align:center;padding:8px;border-radius:8px}.switch .on{background:var(--ink);color:white}.label{font-size:13px;font-weight:650;color:var(--muted);margin-top:15px}.select,.search{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:5px}.points{background:var(--subtle);border:1px solid var(--border);border-radius:12px;padding:9px 11px;margin-top:7px}.point{display:flex;gap:9px;padding:5px 0;font-size:13px}.point i{width:12px;height:12px;border:2px solid var(--ink);background:white;border-radius:50%;margin-top:4px}.point.step i{border-radius:3px}.point.dest i{background:var(--ink)}.more{color:var(--interactive);font-size:13px;margin-top:5px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:7px}.metric{background:var(--canvas);border-radius:8px;padding:8px;text-align:center;font-size:12px}.metric b{font-size:16px;display:block}.metric em{font-style:normal;color:var(--interactive);font-size:11px}.links{font-size:13px;color:var(--interactive);margin:13px 0}.actions{display:flex;gap:8px}.btn{border:1px solid var(--border);background:white;color:var(--ink);border-radius:12px;padding:10px 12px;font-weight:650}.btn.primary{background:var(--interactive);border-color:var(--interactive);color:white;flex:1}.inspect-title{font-size:20px;font-weight:750;display:flex;justify-content:space-between}.group{margin-top:18px}.check{font-size:13px;padding:6px 0}.range{height:6px;border-radius:8px;background:var(--border);margin:9px 0}.range:after{content:"";display:block;width:62%;height:100%;background:var(--interactive);border-radius:8px}.apply{width:100%;margin-top:18px}.status{background:var(--info);border-radius:12px;padding:10px 12px;font-size:13px;margin-top:13px}.profile{position:absolute;left:690px;right:25px;bottom:25px;background:white;border-radius:18px;padding:13px 18px;box-shadow:0 -8px 24px #17324D18;display:flex;justify-content:space-between}.compass{position:absolute;right:25px;top:25px;width:48px;height:48px;border-radius:50%;background:white;display:grid;place-items:center;box-shadow:0 6px 18px #17324D22;font-size:12px}.maplabel{font-size:12px;fill:var(--ink)}
+/* Expanded metric bubble: continuous representative elevation curve, never stepped. */
+.profile{display:block}.profile-head{display:flex;justify-content:space-between}.elevation{width:100%;height:64px;margin-top:8px}.elevation path{fill:none;stroke:var(--route);stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+</style>
+</head>
+<body>
+<main class="browser">
+<header class="header">
+<strong class="brand">bikeroute</strong>
+<span class="trail">Atelier · Parcours sans titre</span>
+<span class="account">Mes parcours　⋯</span>
+</header>
+<section class="map">
+<svg viewBox="0 0 1400 840">
+<rect width="1400" height="840" fill="#E8EFF3"/>
+<g stroke="#CBD8DF" fill="none">
+<path d="M100 100Q600 220 1380 80M40 260Q650 370 1390 220M80 470Q650 560 1380 440M120 690Q720 620 1390 720"/>
+<path d="M500 0L530 840M800 0L760 840M1100 0L1160 840"/>
+</g>
+<path d="M690 520C770 200 1080 120 1260 410S970 720 690 520" fill="none" stroke="#7895A5" stroke-width="8" opacity=".35"/>
+<path d="M690 520C780 220 1070 140 1240 410S950 700 690 520" fill="none" stroke="#F05A28" stroke-width="7"/>
+<circle cx="690" cy="520" r="10" fill="#fff" stroke="#17324D" stroke-width="4"/>
+<rect x="1015" y="185" width="16" height="16" rx="3" fill="#fff" stroke="#17324D" stroke-width="3"/>
+<circle cx="1240" cy="410" r="10" fill="#17324D"/>
+<text x="705" y="550" class="maplabel">Départ</text>
+<text x="1038" y="200" class="maplabel">Étape</text>
+<text x="1255" y="405" class="maplabel">Destination</text>
+</svg>
+<aside class="panel">
+<div class="switch">
+<span class="on">Manuel</span>
+<span>Assisté</span>
+</div>
+<div class="label">TOPOLOGIE</div>
+<div class="select">Multi-étapes　⌄</div>
+<div class="label">POINTS RÉCENTS</div>
+<div class="points">
+<div class="point">
+<i>
+</i>Départ · Place du village</div>
+<div class="point step">
+<i>
+</i>Col de la Croix · Étape</div>
+<div class="point">
+<i>
+</i>Point de passage</div>
+<div class="point dest">
+<i>
+</i>Vaison · Destination</div>
+<div class="more">Ouvrir la liste complète (8) ›</div>
+</div>
+<div class="label">MÉTRIQUES</div>
+<div class="metrics">
+<div class="metric">
+<b>54,2 km</b>
+<em>→ recalcul…</em>
+</div>
+<div class="metric">
+<b>830 m D+</b>
+<em>→ 845 m</em>
+</div>
+<div class="metric">
+<b>2 h 40</b>
+<em>→ 2 h 43</em>
+</div>
+</div>
+<div class="status">Mise à jour… Le dernier tracé reste affiché.</div>
+<div class="links">Options　Profil　Analyse　Montées</div>
+<button class="btn">↶ Annuler</button>
+<div class="actions">
+<button class="btn primary">Enregistrer</button>
+<button class="btn">Exporter</button>
+</div>
+</aside>
+<aside class="inspector">
+<div class="inspect-title">Options <span>×</span>
+</div>
+<div class="group">
+<b>Préférences routières</b>
+<div class="check">☑ Éviter les grands axes</div>
+<div class="check">☑ Favoriser les routes secondaires</div>
+<div class="check">☐ Favoriser les pistes cyclables</div>
+</div>
+<div class="group">
+<b>Revêtement</b>
+<div class="select">Goudronné privilégié　⌄</div>
+</div>
+<div class="group">
+<b>Dénivelé maximal</b>
+<div class="range">
+</div>
+<span>900 m D+</span>
+</div>
+<button class="btn primary apply">Appliquer</button>
+<div class="status">Les métriques évoluent dans le panneau principal.</div>
+</aside>
+<div class="compass">N<br>▲</div>
+<div class="profile">
+<div class="profile-head"><b>54,2 km · 830 m D+ · 2 h 40</b><span>Profil altimétrique　▾</span></div>
+<svg class="elevation" viewBox="0 0 600 64" preserveAspectRatio="none" aria-label="Profil altimétrique en courbe continue">
+<path d="M0 54 C45 52,70 38,105 40 S165 8,205 18 S255 48,300 35 S355 6,405 16 S470 52,520 38 S565 28,600 48"/>
+</svg>
+</div>
+</section>
+</main>
+</body>
+</html>
