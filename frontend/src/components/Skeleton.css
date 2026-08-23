@@ -1,0 +1,35 @@
+/* `{components.skeleton}` (DESIGN.md) : background `{colors.canvas}`,
+   shimmer `{colors.surface-subtle}`, radius `{rounded.sm}`. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  max-width: 100%;
+  /* Repli si `height` est omis par l'appelant : sans lui, un `<div>` sans
+     contenu s'effondrerait à hauteur 0 (placeholder invisible). */
+  min-height: 0.75rem;
+  background: #eef3f6;
+  border-radius: 8px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, #f7fafb, transparent);
+  animation: skeleton-balayage 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-balayage {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Préférence de mouvement réduit (cf. EXPERIENCE.md, Accessibility Floor) :
+   pas d'animation continue, la forme réservée suffit. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}

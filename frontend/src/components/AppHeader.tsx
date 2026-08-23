@@ -7,8 +7,10 @@ interface AppHeaderProps {
   onDeconnexion: () => void
 }
 
-// Marque + Account menu (Déconnexion seule pour l'instant : "Mes parcours"
-// et "Exporter mes données" n'ont rien à pointer avant Epic 2/5).
+// Marque + Account menu complet (Mes parcours / Exporter mes données /
+// Déconnexion). Les deux premières entrées restent inertes : elles n'ont
+// rien à pointer avant Epic 2/5, mais doivent être visibles (cf. AC menu
+// complet de spec-1-4) plutôt qu'omises ou menant à une route inexistante.
 export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
   const [menuOuvert, setMenuOuvert] = useState(false)
   const [deconnexionEnCours, setDeconnexionEnCours] = useState(false)
@@ -78,6 +80,27 @@ export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
             <button
               type="button"
               role="menuitem"
+              className="app-header__item-inerte"
+              aria-disabled="true"
+              title="Bientôt disponible"
+            >
+              <span>Mes parcours</span>
+              <span className="app-header__note">Bientôt disponible</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="app-header__item-inerte"
+              aria-disabled="true"
+              title="Bientôt disponible"
+            >
+              <span>Exporter mes données</span>
+              <span className="app-header__note">Bientôt disponible</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="app-header__deconnexion"
               disabled={deconnexionEnCours}
               onClick={handleDeconnexion}
             >

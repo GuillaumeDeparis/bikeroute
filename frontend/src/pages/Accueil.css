@@ -3,3 +3,103 @@
   margin: 4rem auto;
   padding: 0 1.5rem;
 }
+
+.accueil__session {
+  color: #555;
+  font-size: 0.9rem;
+  margin: 0 0 1.5rem;
+}
+
+.accueil__etat-vide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 2rem 1.5rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  background: #fafafa;
+}
+
+.accueil__etat-vide h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.accueil__etat-vide p {
+  margin: 0;
+  color: #555;
+}
+
+.accueil__cta {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+}
+
+/* `cursor: not-allowed` vit ici plutôt que dans la règle de base : si
+   Epic 2 active un jour ce CTA (retrait de aria-disabled) sans toucher ce
+   fichier, le curseur ne resterait pas "not-allowed" par erreur.
+   Couleurs explicites plutôt qu'une opacité : une opacité sur ce bouton se
+   compose avec le fond de la page (quasi blanc) et retombe autour de 2.6:1
+   pour le texte blanc, bien sous le seuil AA -- cf. même correctif sur
+   AppHeader.css. */
+.accueil__cta[aria-disabled='true'] {
+  cursor: not-allowed;
+  background: #cfe0d7;
+  color: #2f4f42;
+}
+
+.accueil__note {
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+/* Skeleton pendant la résolution de session : mêmes proportions que l'état
+   "aucun parcours" pour éviter tout déplacement visible à l'arrivée du
+   contenu réel. */
+.accueil--skeleton .accueil__etat-vide {
+  background: transparent;
+  border-color: transparent;
+}
+
+.accueil__skeleton-ligne,
+.accueil__skeleton-titre,
+.accueil__skeleton-cta {
+  display: block;
+}
+
+.accueil__skeleton-ligne {
+  margin-bottom: 1.5rem;
+}
+
+.accueil--skeleton .accueil__etat-vide .accueil__skeleton-ligne {
+  margin-bottom: 0;
+}
+
+/* Adaptable ordinateur <-> mobile (NFR-12) : aucune perte de fonction,
+   simple resserrement des marges et passage en pleine largeur. */
+@media (max-width: 30rem) {
+  .accueil {
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+
+  .accueil__etat-vide {
+    width: 100%;
+    padding: 1.5rem 1rem;
+  }
+
+  .accueil__cta {
+    width: 100%;
+    align-items: center;
+    text-align: center;
+  }
+}

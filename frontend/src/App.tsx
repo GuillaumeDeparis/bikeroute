@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ApiError, getSession } from './api/client'
 import { AppHeader } from './components/AppHeader'
-import { Accueil } from './pages/Accueil'
+import { Accueil, AccueilSkeleton } from './pages/Accueil'
 import { Connexion } from './pages/Connexion'
 import { Inscription } from './pages/Inscription'
 
@@ -45,9 +45,11 @@ function App() {
   }, [])
 
   if (vue.nom === 'resolution') {
-    // Résolution de la session en cours : rien à afficher plutôt qu'un
-    // Connexion/Accueil incorrect qui clignoterait à l'écran.
-    return null
+    // Résolution de la session en cours : Skeleton sobre de l'Accueil
+    // plutôt qu'un Connexion/Accueil incorrect qui clignoterait à l'écran,
+    // et plutôt qu'un rendu vide qui ferait sauter la mise en page à
+    // l'arrivée du résultat.
+    return <AccueilSkeleton />
   }
 
   if (vue.nom === 'accueil') {

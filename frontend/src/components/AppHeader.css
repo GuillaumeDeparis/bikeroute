@@ -48,13 +48,54 @@
   cursor: pointer;
 }
 
-.app-header__menu button:hover:not(:disabled) {
+.app-header__menu button:hover:not(:disabled):not([aria-disabled='true']) {
   background: #f2f2f2;
 }
 
 .app-header__menu button:disabled {
+  /* Réservé à l'état natif `disabled` (ex. Déconnexion en cours) : transitoire,
+     le texte du bouton change lui-même ("Déconnexion…") pendant cet état. */
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.app-header__menu button[aria-disabled='true'] {
+  /* Pas d'opacité ici : elle se compose avec la couleur du texte et repasse
+     sous le seuil de contraste AA visé par `.app-header__note` (ex. #5c5c5c
+     à 60% d'opacité sur blanc retombe à ~2.7:1). Le style "inerte" vient des
+     couleurs de texte explicites ci-dessous, jamais d'un fondu global. */
+  cursor: not-allowed;
+}
+
+.app-header__menu button.app-header__item-inerte {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.app-header__item-inerte > span:first-child {
+  /* Libellé principal d'une entrée inerte : gris explicite (pas d'opacité,
+     cf. note ci-dessus), ~7.5:1 sur blanc. */
+  color: #555;
+}
+
+.app-header__note {
+  display: block;
+  font-size: 0.75rem;
+  /* #5c5c5c sur blanc franchit le seuil AA 4.5:1 -- valable seulement en
+     l'absence de toute opacité parente (cf. règle [aria-disabled] ci-dessus). */
+  color: #5c5c5c;
+}
+
+/* Sépare visuellement la seule action réelle du menu (Déconnexion) des deux
+   entrées inertes qui la précèdent, pour éviter toute confusion. Spécificité
+   égale à `.app-header__menu button` (qui pose `border: none`) : sans le
+   sélecteur composé, ce dernier gagnerait la cascade et annulerait la
+   bordure. */
+.app-header__menu button.app-header__deconnexion {
+  border-top: 1px solid #ddd;
+  margin-top: 0.25rem;
+  padding-top: 0.75rem;
 }
 
 .app-header__erreur {
@@ -62,4 +103,24 @@
   padding: 0.5rem 0.75rem;
   color: #c62828;
   font-size: 0.85rem;
+}
+
+/* Adaptable ordinateur <-> mobile (NFR-12) : le menu reste utilisable sur
+   petit écran, sans se faire déborder par un identifiant long. */
+@media (max-width: 30rem) {
+  .app-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .app-header__bouton-compte {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app-header__menu {
+    min-width: 10rem;
+    max-width: calc(100vw - 2rem);
+  }
 }
