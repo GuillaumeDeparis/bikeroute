@@ -80,6 +80,18 @@ baseline_commit: '2f75a847f1bbe7a8d806508ab172cba4ed6e2d01'
 - Given une session active sur l'Accueil, when Déconnexion dans le Account menu, then session fermée en base et retour à Connexion.
 - Given une session expirée pendant l'usage de l'Accueil, when la vérification de session échoue, then retour à Connexion sans rechargement complet.
 
+### Review Findings
+
+_Revue épic 1 (code review, 2026-08-23) — voir aussi 1.1/1.3/1.4 pour les findings rattachés à ces stories._
+
+- [x] [Review][Patch] Si `getSession()` échoue au montage avec autre chose qu'un 401 (panne réseau/serveur transitoire), l'app reste bloquée indéfiniment sur `AccueilSkeleton` (seul un `console.warn`, aucune nouvelle tentative ni état d'erreur) [`frontend/src/App.tsx:28`]
+- [x] [Review][Patch] Le sondage périodique de session dans `Accueil.tsx` démarre inconditionnellement au montage, même si l'onglet est déjà en arrière-plan à cet instant — contredit la contrainte de mise en pause hors du champ visible (Design Notes de cette spec) [`frontend/src/pages/Accueil.tsx:70`]
+- [x] [Review][Patch] Le hachage factice (`_dummy_hash`) de la défense à temps constant est calculé paresseusement au premier appel par processus — la toute première connexion avec un identifiant inconnu sur chaque worker est mesurablement plus lente que les suivantes, ce qui contredit littéralement l'Always "temps de réponse constant quelle que soit la cause" [`backend/app/services/accounts.py:134`]
+- [x] [Review][Patch] Aucune limitation de tentatives (rate limiting/lockout) sur `/login` et `/register` — rien ne freine un brute-force [`backend/app/routers/auth.py`]
+- [x] [Review][Patch] Les sessions expirées ne sont jamais supprimées de la table `sessions` (seulement filtrées des requêtes) — croissance non bornée dans le temps ; ajouter une suppression paresseuse des lignes expirées à l'occasion des accès existants (pas de job planifié) [`backend/app/services/sessions.py`]
+- [x] [Review][Patch] La branche `except IntegrityError` de `login()` (compte supprimé entre la vérification et l'écriture de session → 401 générique plutôt qu'une 500) n'est couverte par aucun test, contrairement à l'équivalent côté `register` [`backend/app/routers/auth.py:88`]
+- [x] [Review][Patch] En cas d'expiration de session, retour silencieux à Connexion sans aucun message — la section Problème de cette spec parle explicitement d'être « averti proprement » ; ajouter un message bref sur l'écran Connexion dans ce cas [`frontend/src/pages/Accueil.tsx`, `frontend/src/pages/Connexion.tsx`]
+
 ## Design Notes
 
 - **1.2 vs 1.3 :** `get_current_account` résout *qui* est connecté ; l'autorisation par propriétaire sur une ressource précise reste entière à 1.3, au-dessus de cette identité.

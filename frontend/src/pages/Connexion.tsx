@@ -24,9 +24,12 @@ function validateMotDePasse(motDePasse: string): string | undefined {
 interface ConnexionProps {
   onConnecte: (identifiant: string) => void
   onAllerInscription: () => void
+  /** Motif d'un retour automatique à Connexion (ex. session expirée),
+   * distinct d'un échec de soumission du formulaire (`erreur` ci-dessous). */
+  messageExpiration?: string
 }
 
-export function Connexion({ onConnecte, onAllerInscription }: ConnexionProps) {
+export function Connexion({ onConnecte, onAllerInscription, messageExpiration }: ConnexionProps) {
   const [identifiant, setIdentifiant] = useState('')
   const [motDePasse, setMotDePasse] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
@@ -85,6 +88,11 @@ export function Connexion({ onConnecte, onAllerInscription }: ConnexionProps) {
   return (
     <main className="connexion">
       <h1>Se connecter</h1>
+      {!erreur && messageExpiration && (
+        <p className="connexion__info" role="status">
+          {messageExpiration}
+        </p>
+      )}
       <form onSubmit={handleSubmit} noValidate>
         <div className="champ">
           <label htmlFor="identifiant">Identifiant</label>

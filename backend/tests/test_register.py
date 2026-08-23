@@ -125,15 +125,26 @@ def test_mot_de_passe_identique_a_identifiant_renvoie_422_mot_de_passe_invalide(
     assert body["details"]["field"] == "mot_de_passe"
 
 
-def test_mot_de_passe_jamais_journalise_en_clair(client: TestClient, caplog) -> None:
+def test_mot_de_passe_jamais_journalise_en_clair(client: TestClient, caplog, capsys) -> None:
+    """Vérifie tous les canaux de sortie réellement atteignables, pas
+    seulement `logging` : l'app n'utilise aujourd'hui aucun `logger`, donc
+    une assertion limitée à `caplog` passerait trivialement sans jamais
+    pouvoir détecter une vraie fuite (print, exception non gérée, corps de
+    réponse)."""
     secret = "mot-de-passe-tres-secret-123"
-    client.post(
+    response = client.post(
         "/api/auth/register",
         json={"identifiant": "dave", "mot_de_passe": secret},
     )
 
     for record in caplog.records:
         assert secret not in record.getMessage()
+
+    captured = capsys.readouterr()
+    assert secret not in captured.out
+    assert secret not in captured.err
+
+    assert secret not in response.text
 
 
 def test_mot_de_passe_identique_a_identifiant_insensible_a_la_casse(client: TestClient) -> None:

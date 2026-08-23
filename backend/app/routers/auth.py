@@ -24,6 +24,7 @@ from ..schemas.auth import (
 )
 from ..services.accounts import authenticate_account, register_account
 from ..services.authorization import get_owned_or_404
+from ..services.rate_limiting import check_rate_limit
 from ..services.sessions import (
     clear_session_cookie,
     create_session,
@@ -37,6 +38,17 @@ from ..services.sessions import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client is not None else "unknown"
+
+
+def _rate_limit_key(request: Request, *, scope: str, identifiant: str) -> str:
+    # IP + identifiant : une IP partagée (NAT, proxy d'entreprise) ne bloque
+    # pas les autres comptes, et un identifiant seul ne suffit pas à limiter
+    # un attaquant qui en essaie beaucoup depuis la même IP.
+    return f"{scope}:{_client_ip(request)}:{identifiant.strip().casefold()}"
+
+
 @router.post(
     "/register",
     response_model=AccountResponse,
@@ -48,10 +60,16 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 )
 def register(
     payload: RegisterRequest,
+    request: Request,
     response: Response,
     db: DBSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AccountResponse:
+    check_rate_limit(
+        _rate_limit_key(request, scope="register", identifiant=payload.identifiant),
+        max_attempts=settings.register_rate_limit_max_attempts,
+        window_seconds=settings.register_rate_limit_window_seconds,
+    )
     account, session = register_account(
         db,
         identifiant=payload.identifiant,
@@ -74,10 +92,16 @@ def register(
 )
 def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     db: DBSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> AccountResponse:
+    check_rate_limit(
+        _rate_limit_key(request, scope="login", identifiant=payload.identifiant),
+        max_attempts=settings.login_rate_limit_max_attempts,
+        window_seconds=settings.login_rate_limit_window_seconds,
+    )
     account = authenticate_account(
         db,
         identifiant=payload.identifiant,
@@ -151,6 +175,13 @@ def list_sessions(
     # mises en cache.
     response.headers["Cache-Control"] = "no-store"
     sessions = list_active_sessions(db, account.id)
+    if not any(s.id == current_session.id for s in sessions):
+        # Course rare : la session courante a pu expirer entre la résolution
+        # de `resolve_current_session` (ci-dessus) et cette requête (deux
+        # appels d'horloge distincts). On l'inclut quand même explicitement
+        # pour garantir qu'un `current: true` existe toujours dans la
+        # réponse d'une requête authentifiée par cette même session.
+        sessions = [current_session, *sessions]
     return [
         SessionListItem(
             id=s.id,

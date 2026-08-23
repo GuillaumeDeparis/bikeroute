@@ -38,6 +38,12 @@
   margin: 0;
 }
 
+.connexion__info {
+  color: #555;
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+}
+
 .connexion button[type='submit'] {
   font-size: 1rem;
   padding: 0.6rem 1rem;

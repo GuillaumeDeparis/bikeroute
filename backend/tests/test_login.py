@@ -10,6 +10,7 @@ from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select, text
 
+from app.routers import auth as auth_router_module
 from app.config import get_settings
 from app.models.account import Account
 from app.models.session import Session as SessionModel
@@ -307,3 +308,34 @@ def test_verification_session_avec_compte_supprime_entre_temps_renvoie_401(
 
     assert response.status_code == 401
     assert response.json()["code"] == "SESSION_INVALIDE"
+
+
+def test_connexion_avec_compte_supprime_entre_authentification_et_creation_session_renvoie_401(
+    client: TestClient, db_session, monkeypatch
+) -> None:
+    """Course rare mais réelle décrite dans `routers/auth.py::login` : le
+    compte est supprimé juste après l'authentification mais avant que la
+    nouvelle session ne soit committée -> violation de la FK
+    `sessions.account_id` au commit -> `IntegrityError` interceptée et
+    traitée comme le même 401 générique que tout autre échec, jamais une
+    500. Symétrique au test de course déjà existant côté `register`
+    (`test_course_entre_verification_et_ecriture_renvoie_409`)."""
+    _inscrire(client, "supprime-en-cours-de-route")
+
+    original_create_session = auth_router_module.create_session
+
+    def _create_session_puis_supprimer_le_compte(db, *, account_id, settings):
+        session = original_create_session(db, account_id=account_id, settings=settings)
+        db_session.execute(delete(Account).where(Account.id == account_id))
+        db_session.commit()
+        return session
+
+    monkeypatch.setattr(auth_router_module, "create_session", _create_session_puis_supprimer_le_compte)
+
+    response = client.post(
+        "/api/auth/login",
+        json={"identifiant": "supprime-en-cours-de-route", "mot_de_passe": "un-mot-de-passe-solide"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "IDENTIFIANTS_INVALIDES"

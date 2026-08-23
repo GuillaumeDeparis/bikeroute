@@ -97,7 +97,7 @@ def register_account(
     if (
         len(mot_de_passe) < settings.password_min_length
         or len(mot_de_passe) > settings.password_max_length
-        or mot_de_passe.lower() == identifiant.lower()
+        or mot_de_passe.casefold() == identifiant.casefold()
     ):
         raise AppError(
             422,
@@ -134,6 +134,17 @@ def _dummy_password_hash(settings: Settings) -> str:
     if _dummy_hash is None:
         _dummy_hash = _build_hasher(settings).hash(_DUMMY_PASSWORD)
     return _dummy_hash
+
+
+def warm_up_dummy_hash(settings: Settings) -> None:
+    """Précalcule le hachage bidon au démarrage du processus (cf. `main.py`).
+
+    Sans cet appel, la toute première tentative de connexion avec un
+    identifiant inconnu sur un worker donné paierait le coût du hachage en
+    plus de la vérification, la rendant mesurablement plus lente que les
+    suivantes -- une fuite de timing qui contredit l'Always "temps de
+    réponse constant quelle que soit la cause" (spec-1-2)."""
+    _dummy_password_hash(settings)
 
 
 def authenticate_account(db: DBSession, *, identifiant: str, mot_de_passe: str, settings: Settings) -> Account:

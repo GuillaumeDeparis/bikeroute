@@ -33,3 +33,17 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
   summary: Ajouter un README racine documentant `docker compose up`, la migration Alembic hors Docker, et l'acceptation du certificat auto-signé du frontend en local.
   evidence: Rien ne documente ces étapes ; actuellement récupérable en lisant le code/spec, mais deviendra nécessaire dès qu'un deuxième contributeur rejoint le projet.
+
+## Deferred from: code review of épic 1 (2026-08-23)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
+  summary: Normaliser Unicode (NFC/NFKC) l'identifiant et le mot de passe avant comparaison/hachage.
+  evidence: Sans normalisation, deux saisies visuellement identiques mais composées différemment (accents combinants vs précomposés) seraient traitées comme des valeurs distinctes — source réelle mais rare de "mon mot de passe ne marche pas". Deferred : edge case Unicode peu fréquent, à revisiter avec un futur travail d'internationalisation.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
+  summary: Ajouter un `server_default` en base pour `id`/`created_at`/`expires_at` sur `accounts`/`sessions` plutôt que de dépendre uniquement des défauts côté ORM.
+  evidence: Un futur insert SQL brut (script de seed, correctif manuel) violerait les contraintes NOT NULL. Deferred : un `server_default` naïf pour `id` (ex. `gen_random_uuid()`) produirait un UUIDv4 et violerait la contrainte Always "UUIDv7" ; l'app maîtrise aujourd'hui tous les chemins d'écriture via l'ORM, donc pas urgent.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
+  summary: Exposer la politique de longueur de mot de passe (`PASSWORD_MIN_LENGTH`/`MAX_LENGTH`) via un endpoint plutôt que de la dupliquer en dur dans `frontend/src/pages/Inscription.tsx`.
+  evidence: Si l'env var backend change, le frontend dérive silencieusement sans qu'un redéploiement le corrige forcément. Deferred : risque faible (le seuil change rarement) ; exposer un endpoint dédié est disproportionné pour cet épic — le serveur reste de toute façon la source de vérité.

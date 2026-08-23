@@ -65,6 +65,13 @@ baseline_commit: '48ccd1cc4cf4bcce9ea73387ec40919a4e9b1717'
 - Given une ressource appartient à un autre compte, when je tente d'y accéder avec le mien, then l'accès est refusé côté serveur (404), quelle que soit la requête envoyée.
 - Given je ne suis pas authentifié, when je tente d'accéder à une ressource protégée, then l'accès est refusé (401) et je suis invité à me connecter (comportement 1.2 réutilisé sans changement).
 
+### Review Findings
+
+_Revue épic 1 (code review, 2026-08-23) — voir aussi 1.1/1.2/1.4 pour les findings rattachés à ces stories._
+
+- [x] [Review][Patch] Fenêtre de course théorique entre `resolve_current_session` (dépendance) et `list_active_sessions` : si l'expiration tombe entre les deux appels à l'horloge, la session courante peut être absente de la liste sans qu'aucun élément ne porte `current: true` — réutiliser la session déjà résolue plutôt que de refiltrer par expiration [`backend/app/services/sessions.py:117`]
+- [x] [Review][Patch] L'en-tête `Cache-Control: no-store` de `GET /sessions` n'est vérifié par aucun test, contrairement à la même garantie sur `GET /session` [`backend/tests/test_sessions_authorization.py`]
+
 ## Design Notes
 
 - **404 pas 403 :** un 403 confirmerait l'existence de la ressource chez un autre compte (oracle) ; 404 traite "n'existe pas" et "pas à vous" identiquement.

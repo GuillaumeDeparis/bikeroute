@@ -14,6 +14,7 @@ from sqlalchemy import text
 
 from app.db import SessionLocal, engine
 from app.main import app
+from app.services.rate_limiting import reset_rate_limits
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,14 @@ def _clean_tables() -> Iterator[None]:
     yield
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE TABLE sessions, accounts RESTART IDENTITY CASCADE"))
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> None:
+    # Évite qu'un test sans rapport avec le rate limiting n'échoue parce que
+    # des tests précédents ont épuisé le quota de la même clé (IP factice du
+    # `TestClient`, partagée par toute la suite).
+    reset_rate_limits()
 
 
 @pytest.fixture

@@ -16,21 +16,39 @@ export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
   const [deconnexionEnCours, setDeconnexionEnCours] = useState(false)
   const [erreur, setErreur] = useState<string | undefined>(undefined)
   const conteneurRef = useRef<HTMLDivElement>(null)
+  const boutonCompteRef = useRef<HTMLButtonElement>(null)
+  const premierItemRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!menuOuvert) {
       return
     }
 
+    // Focus déplacé dans le menu à l'ouverture (première entrée), pour un
+    // usage clavier/lecteur d'écran correct (trouvé en revue de l'épic 1).
+    premierItemRef.current?.focus()
+
+    function fermerEtEffacerErreur() {
+      setMenuOuvert(false)
+      // Un message d'échec de déconnexion ne doit pas resurgir à une
+      // réouverture ultérieure sans rapport avec la tentative qui l'a
+      // produit (trouvé en revue de l'épic 1).
+      setErreur(undefined)
+    }
+
     function handleClicExterieur(event: MouseEvent) {
       if (conteneurRef.current && !conteneurRef.current.contains(event.target as Node)) {
-        setMenuOuvert(false)
+        fermerEtEffacerErreur()
       }
     }
 
     function handleEchap(event: KeyboardEvent) {
       if (event.key === 'Escape') {
-        setMenuOuvert(false)
+        fermerEtEffacerErreur()
+        // Échap ne déplace pas le focus lui-même (contrairement à un clic
+        // extérieur, qui atterrit naturellement où l'utilisateur a cliqué) :
+        // on le restaure explicitement sur le déclencheur du menu.
+        boutonCompteRef.current?.focus()
       }
     }
 
@@ -41,6 +59,13 @@ export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
       document.removeEventListener('keydown', handleEchap)
     }
   }, [menuOuvert])
+
+  function handleToggleMenu() {
+    if (menuOuvert) {
+      setErreur(undefined)
+    }
+    setMenuOuvert((ouvert) => !ouvert)
+  }
 
   async function handleDeconnexion() {
     if (deconnexionEnCours) {
@@ -67,17 +92,19 @@ export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
       <span className="app-header__marque">BikeRoute</span>
       <div className="app-header__compte" ref={conteneurRef}>
         <button
+          ref={boutonCompteRef}
           type="button"
           className="app-header__bouton-compte"
           aria-haspopup="true"
           aria-expanded={menuOuvert}
-          onClick={() => setMenuOuvert((ouvert) => !ouvert)}
+          onClick={handleToggleMenu}
         >
           {identifiant}
         </button>
         {menuOuvert && (
           <div className="app-header__menu" role="menu">
             <button
+              ref={premierItemRef}
               type="button"
               role="menuitem"
               className="app-header__item-inerte"

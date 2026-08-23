@@ -85,6 +85,23 @@ Projet vierge (aucun code applicatif existant, seulement `docs/` et `_bmad*`) �
 - Given un visiteur non connecté sur la page Inscription, when il saisit un identifiant disponible et un mot de passe valide puis valide, then un compte est créé, une session sécurisée est ouverte, et il arrive authentifié sans étape de connexion séparée.
 - Given `docker compose up`, when les trois services démarrent et que le certificat auto-signé du frontend est accepté une première fois par le navigateur, then la page Inscription est accessible et l'inscription fonctionne de bout en bout — y compris la persistance réelle du cookie de session dans un vrai navigateur — sans configuration manuelle supplémentaire.
 
+### Review Findings
+
+_Revue épic 1 (code review, 2026-08-23) — voir aussi 1.2/1.3/1.4 pour les findings rattachés à ces stories._
+
+- [x] [Review][Patch] Aucune validation des bornes des réglages Argon2id (`time_cost`/`memory_cost`/`parallelism`/`hash_len`/`salt_len`) — une valeur nulle ou négative via l'environnement fait échouer tout hachage/vérification en 500 [`backend/app/config.py:44`]
+- [x] [Review][Patch] Aucun en-tête de sécurité HTTP de base (CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS) [`backend/app/main.py`]
+- [x] [Review][Patch] Comparaisons insensibles à la casse via `.lower()` plutôt que `casefold()` côté Python — cas Unicode non-ASCII (ß/ẞ, İ/ı) mal gérés [`backend/app/services/accounts.py:75`]
+- [x] [Review][Patch] `GET /health` ne vérifie pas la connectivité à la base — ne peut pas servir de sonde de disponibilité réelle pour l'orchestration Docker [`backend/app/main.py:57`]
+- [x] [Review][Patch] Aucun framework de test frontend (Vitest/Testing Library) alors que plusieurs comportements non triviaux sont livrés sans couverture — mettre en place le framework et couvrir au minimum les cas signalés en 1.2/1.4 [`frontend/`]
+- [x] [Review][Patch] `test_mot_de_passe_jamais_journalise_en_clair` n'asserte que sur `caplog`, alors qu'aucun module `logging` n'est utilisé dans l'app — le test passe trivialement et ne détecterait pas une vraie fuite (print, exception, corps de réponse) [`backend/tests/test_register.py`]
+- [x] [Review][Patch] Formulaire d'inscription à un seul champ mot de passe, sans confirmation — un typo silencieux crée un mot de passe inconnu de l'utilisateur, sans recours possible (récupération explicitement hors périmètre) [`frontend/src/pages/Inscription.tsx`]
+- [x] [Review][Patch] Aucune limite de taille de corps de requête sur l'API — `/register`/`/login` acceptent un payload JSON arbitrairement grand avant les contrôles de longueur applicatifs [`backend/app/main.py`]
+- [x] [Review][Defer] Aucune normalisation Unicode (NFC/NFKC) de l'identifiant/mot de passe avant comparaison/hachage — deux saisies visuellement identiques mais différemment composées seraient traitées comme distinctes [`backend/app/services/accounts.py`] — deferred, edge case Unicode rare, à revisiter avec un futur travail d'internationalisation
+- [x] [Review][Defer] Aucun pipeline CI (tests backend, lint/typecheck/build frontend) [`repo`] — deferred, gap d'infra projet préexistant, hors périmètre de cet épic
+- [x] [Review][Defer] Migration sans `server_default` pour `id`/`created_at`/`expires_at` (repose uniquement sur les défauts côté ORM) [`backend/alembic/versions/20260822_0001_initial_accounts_and_sessions.py`] — deferred, un `server_default` naïf pour `id` produirait un UUIDv4 et violerait la contrainte Always UUIDv7 ; l'app maîtrise déjà tous les chemins d'écriture via l'ORM
+- [x] [Review][Defer] `frontend/src/pages/Inscription.tsx` duplique `PASSWORD_MIN_LENGTH = 10` en dur pour miroir `config.py` — dérive silencieuse si la variable d'environnement change côté backend sans redéploiement frontend [`frontend/src/pages/Inscription.tsx:11`] — deferred, risque faible (le seuil change rarement) ; exposer la politique via un endpoint dédié est disproportionné pour cet épic
+
 ## Spec Change Log
 
 - **Finding (bad_spec, review_loop_iteration 1) :** revue triple (blind-hunter, edge-case-hunter, verification-gap) sur la première implémentation. Le cookie de session posé avec `Secure=True` (conforme à l'`Always` gelé) est silencieusement rejeté par tout vrai navigateur car l'environnement `docker-compose` sert le frontend et l'API en HTTP pur — aucun TLS nulle part. La vérification par `curl` du premier essai ne pouvait pas révéler ce défaut (curl n'applique pas la règle navigateur "Secure exige HTTPS"). Résultat : l'AC "je suis connecté avec une session sécurisée" échouait silencieusement dans le scénario même décrit par la section Verification (`docker compose up` + test manuel via le frontend).

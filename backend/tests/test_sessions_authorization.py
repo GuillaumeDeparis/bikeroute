@@ -41,6 +41,9 @@ def test_lister_ses_sessions_actives_renvoie_le_courant_marque(client: TestClien
     response = client.get("/api/auth/sessions")
 
     assert response.status_code == 200
+    # Données liées à l'identité : jamais mises en cache (même précaution que
+    # `GET /session`, cf. spec-1-2).
+    assert response.headers.get("cache-control") == "no-store"
     body = response.json()
     ids = {item["id"] for item in body}
     assert ids == {session_id_1, session_id_2}

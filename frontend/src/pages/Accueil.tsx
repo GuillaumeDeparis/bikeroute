@@ -66,9 +66,15 @@ export function Accueil({ identifiant, onSessionExpiree }: AccueilProps) {
 
     // Vérification au montage (ex. onglet resté ouvert au-delà de
     // l'expiration), puis à intervalle régulier tant que l'Accueil est
-    // affiché et visible.
-    verifierSession()
-    demarrerIntervalle()
+    // affiché et visible. Si l'onglet est déjà en arrière-plan au montage
+    // (ex. ouvert depuis un lien dans un nouvel onglet non focalisé), on
+    // laisse `handleVisibilityChange` démarrer le sondage à son retour au
+    // premier plan plutôt que de le faire tourner pour rien pendant ce
+    // temps (trouvé en revue de l'épic 1).
+    if (!document.hidden) {
+      verifierSession()
+      demarrerIntervalle()
+    }
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {

@@ -54,6 +54,13 @@ baseline_commit: '329c0b89099312c28ad15b6d804a6bd23c3ffa99'
 - Given je consulte l'Accueil, when je change de taille d'écran (ordinateur ↔ mobile), then l'interface reste utilisable et adaptative sans perte de fonction.
 - Given je suis sur l'Accueil, when j'ouvre le Account menu, then j'accède à Mes parcours, Exporter mes données et Déconnexion (les deux premiers inertes tant qu'Epic 2/5 ne sont pas livrés).
 
+### Review Findings
+
+_Revue épic 1 (code review, 2026-08-23) — voir aussi 1.1/1.2/1.3 pour les findings rattachés à ces stories._
+
+- [x] [Review][Patch] Le message d'erreur de déconnexion échouée (`erreur`) n'est réinitialisé qu'au début d'une nouvelle tentative de déconnexion, jamais à la fermeture du menu (clic extérieur/Échap) — un message obsolète peut resurgir à une réouverture ultérieure sans rapport [`frontend/src/components/AppHeader.tsx:50`]
+- [x] [Review][Patch] Le Account menu n'a pas de gestion du focus : l'ouverture ne déplace pas le focus dans le menu, la fermeture (Échap/clic extérieur) ne le restaure pas sur le bouton déclencheur — lacune d'accessibilité clavier/lecteur d'écran [`frontend/src/components/AppHeader.tsx:14`]
+
 ## Design Notes
 
 - **Où se produit le "chargement" :** dans l'architecture actuelle, l'Accueil n'a pas de données propres à charger (l'état "aucun parcours" est statique jusqu'à l'Epic 2) ; le seul moment de chargement réel est la résolution de session au démarrage de l'app (`App.tsx`, vue `resolution`), qui affichait `null`. C'est cette lecture de l'AC Skeleton qui est retenue ici.

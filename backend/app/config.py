@@ -43,12 +43,36 @@ class Settings(BaseSettings):
     argon2_hash_len: int = 32
     argon2_salt_len: int = 16
 
+    # Limitation de débit sur /login et /register (par IP + identifiant),
+    # fenêtre glissante en mémoire -- cf. `services/rate_limiting.py`.
+    login_rate_limit_max_attempts: int = 10
+    login_rate_limit_window_seconds: float = 60.0
+    register_rate_limit_max_attempts: int = 10
+    register_rate_limit_window_seconds: float = 60.0
+
     @model_validator(mode="after")
     def _validate_bounds(self) -> Self:
         if self.password_min_length > self.password_max_length:
             raise ValueError("password_min_length doit être inférieur ou égal à password_max_length.")
         if self.session_duration_days <= 0:
             raise ValueError("session_duration_days doit être strictement positif.")
+        for field in (
+            "argon2_time_cost",
+            "argon2_memory_cost",
+            "argon2_parallelism",
+            "argon2_hash_len",
+            "argon2_salt_len",
+        ):
+            if getattr(self, field) <= 0:
+                raise ValueError(f"{field} doit être strictement positif.")
+        for field in (
+            "login_rate_limit_max_attempts",
+            "login_rate_limit_window_seconds",
+            "register_rate_limit_max_attempts",
+            "register_rate_limit_window_seconds",
+        ):
+            if getattr(self, field) <= 0:
+                raise ValueError(f"{field} doit être strictement positif.")
         return self
 
 

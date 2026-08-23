@@ -25,8 +25,18 @@ def _session_invalide() -> AppError:
     return AppError(401, "SESSION_INVALIDE", "Session invalide ou expirée.", {})
 
 
+def _cleanup_expired_sessions(db: DBSession) -> None:
+    """Supprime toutes les sessions expirées, tous comptes confondus.
+
+    Pas de job planifié séparé : appelé à chaque création de session
+    (inscription/connexion), ce qui borne la croissance de la table sans
+    ajouter de coût sur les chemins de lecture (`GET /session`, `/sessions`)."""
+    db.execute(delete(SessionModel).where(SessionModel.expires_at <= _utcnow()))
+
+
 def create_session(db: DBSession, *, account_id: uuid.UUID, settings: Settings) -> SessionModel:
     """Construit la ligne `sessions` (non committée : l'appelant décide du commit)."""
+    _cleanup_expired_sessions(db)
     now = _utcnow()
     session = SessionModel(
         account_id=account_id,
