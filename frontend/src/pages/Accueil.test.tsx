@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Accueil } from './Accueil'
 import { getSession } from '../api/client'
 
@@ -23,7 +24,7 @@ describe('Accueil — sondage de session lié à la visibilité de l’onglet', 
     definirVisibilite(true)
     vi.mocked(getSession).mockResolvedValue({ identifiant: 'alice' })
 
-    render(<Accueil identifiant="alice" onSessionExpiree={vi.fn()} />)
+    render(<Accueil identifiant="alice" onOuvrirAtelier={vi.fn()} onSessionExpiree={vi.fn()} />)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(getSession).not.toHaveBeenCalled()
@@ -33,7 +34,7 @@ describe('Accueil — sondage de session lié à la visibilité de l’onglet', 
     definirVisibilite(false)
     vi.mocked(getSession).mockResolvedValue({ identifiant: 'alice' })
 
-    render(<Accueil identifiant="alice" onSessionExpiree={vi.fn()} />)
+    render(<Accueil identifiant="alice" onOuvrirAtelier={vi.fn()} onSessionExpiree={vi.fn()} />)
 
     await waitFor(() => expect(getSession).toHaveBeenCalledTimes(1))
   })
@@ -42,12 +43,28 @@ describe('Accueil — sondage de session lié à la visibilité de l’onglet', 
     definirVisibilite(true)
     vi.mocked(getSession).mockResolvedValue({ identifiant: 'alice' })
 
-    render(<Accueil identifiant="alice" onSessionExpiree={vi.fn()} />)
+    render(<Accueil identifiant="alice" onOuvrirAtelier={vi.fn()} onSessionExpiree={vi.fn()} />)
     expect(getSession).not.toHaveBeenCalled()
 
     definirVisibilite(false)
     document.dispatchEvent(new Event('visibilitychange'))
 
     await waitFor(() => expect(getSession).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('Accueil — ouverture de l’Atelier (Story 2.1)', () => {
+  it("le CTA « Ouvrir l'Atelier » est actif et déclenche la navigation", async () => {
+    definirVisibilite(true) // évite tout appel réseau parasite via le sondage de session dans ce test
+    const user = userEvent.setup()
+    const onOuvrirAtelier = vi.fn()
+
+    render(<Accueil identifiant="alice" onOuvrirAtelier={onOuvrirAtelier} onSessionExpiree={vi.fn()} />)
+    const cta = screen.getByRole('button', { name: "Ouvrir l'Atelier" })
+    expect(cta).not.toHaveAttribute('aria-disabled')
+
+    await user.click(cta)
+
+    expect(onOuvrirAtelier).toHaveBeenCalledTimes(1)
   })
 })

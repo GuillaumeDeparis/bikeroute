@@ -1,0 +1,43 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osm version="0.6" generator="bikeroute-corpus">
+  <!-- Corpus OSM minimal et déterministe pour les tests automatisés du
+       moteur de routage (spec-2-1) : une petite boucle de voirie cyclable
+       autour de Vaucluse fictif, suffisante pour router un point A vers un
+       point B sans dépendre d'un extrait OSM réel. Un point de test isolé
+       (`(45.5000, 6.5000)`, cf. tests) reste hors de cette zone : Valhalla
+       ne trouve aucun réseau routier proche, ce qui exerce le cas « point
+       non routé » sans donnée supplémentaire. -->
+  <bounds minlat="44.9990" minlon="4.9990" maxlat="45.0060" maxlon="5.0060"/>
+  <node id="1" lat="45.0000" lon="5.0000" version="1"/>
+  <node id="2" lat="45.0000" lon="5.0050" version="1"/>
+  <node id="3" lat="45.0050" lon="5.0000" version="1"/>
+  <node id="4" lat="45.0050" lon="5.0050" version="1"/>
+  <way id="101" version="1">
+    <nd ref="1"/>
+    <nd ref="2"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Rue Sud"/>
+    <tag k="oneway" v="no"/>
+  </way>
+  <way id="102" version="1">
+    <nd ref="1"/>
+    <nd ref="3"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Rue Ouest"/>
+    <tag k="oneway" v="no"/>
+  </way>
+  <way id="103" version="1">
+    <nd ref="3"/>
+    <nd ref="4"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Rue Nord"/>
+    <tag k="oneway" v="no"/>
+  </way>
+  <way id="104" version="1">
+    <nd ref="2"/>
+    <nd ref="4"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Rue Est"/>
+    <tag k="oneway" v="no"/>
+  </way>
+</osm>

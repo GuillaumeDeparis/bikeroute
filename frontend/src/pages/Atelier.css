@@ -1,0 +1,204 @@
+.atelier {
+  display: grid;
+  grid-template-columns: 22rem 1fr;
+  gap: 0;
+  height: calc(100vh - 4.5rem); /* pleine hauteur sous AppHeader (cf. AppHeader.css) */
+}
+
+.atelier__panneau {
+  overflow-y: auto;
+  padding: 1.5rem;
+  border-right: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.atelier__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.atelier__entete h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.atelier__retour {
+  border: none;
+  background: none;
+  color: #2a6f4d;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.atelier__recherche {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.atelier__recherche label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.atelier__recherche-ligne {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.atelier__recherche-ligne input {
+  flex: 1;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+}
+
+.atelier__recherche-ligne button {
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+}
+
+.atelier__recherche-ligne button:disabled {
+  cursor: not-allowed;
+  background: #9fbfae;
+}
+
+.atelier__resultats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #ddd;
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.atelier__resultats li + li {
+  border-top: 1px solid #eee;
+}
+
+.atelier__resultats button {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+}
+
+.atelier__resultats button:hover,
+.atelier__resultats button:focus-visible {
+  background: #f2f6f4;
+}
+
+.atelier__menu-contextuel {
+  padding: 0.85rem 1rem;
+  border: 1px solid #cfe0d7;
+  border-radius: 0.5rem;
+  background: #f2f8f5;
+}
+
+.atelier__menu-contextuel p {
+  margin: 0 0 0.35rem;
+}
+
+.atelier__menu-contextuel p:last-child {
+  margin-bottom: 0;
+}
+
+.atelier__topologie {
+  font-size: 0.9rem;
+  color: #444;
+}
+
+.atelier__statut {
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.atelier__erreur {
+  color: #a02020;
+  background: #fdecec;
+  border: 1px solid #f2b8b8;
+  border-radius: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.atelier__bandeau-non-route {
+  padding: 0.75rem 1rem;
+  border: 1px solid #e0b84a;
+  border-radius: 0.5rem;
+  background: #fff8e6;
+}
+
+.atelier__bandeau-non-route p {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.atelier__bandeau-non-route ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.atelier__bandeau-non-route li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.atelier__non-route-conseil {
+  color: #666;
+}
+
+.atelier__bandeau-non-route button {
+  margin-left: auto;
+  border: 1px solid #a02020;
+  color: #a02020;
+  background: #fff;
+  border-radius: 0.25rem;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+}
+
+.atelier__carte-conteneur {
+  position: relative;
+}
+
+.atelier__carte {
+  height: 100%;
+  width: 100%;
+}
+
+@media (max-width: 48rem) {
+  .atelier {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    height: auto;
+  }
+
+  .atelier__panneau {
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+    max-height: 45vh;
+  }
+
+  .atelier__carte-conteneur {
+    height: 55vh;
+  }
+}

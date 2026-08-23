@@ -43,8 +43,8 @@ development_status:
   1-4-accueil-de-synthèse-et-interface-adaptative: done
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle: backlog
+  epic-2: in-progress
+  2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle: review
   2-2-choisir-et-représenter-le-type-de-parcours: backlog
   2-3-éditer-un-parcours-sur-la-carte: backlog
   2-4-inverser-le-sens-d-un-parcours: backlog

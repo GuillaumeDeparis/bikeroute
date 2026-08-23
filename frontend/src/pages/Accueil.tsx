@@ -11,10 +11,11 @@ const INTERVALLE_VERIFICATION_SESSION_MS = 30_000
 
 interface AccueilProps {
   identifiant: string
+  onOuvrirAtelier: () => void
   onSessionExpiree: () => void
 }
 
-export function Accueil({ identifiant, onSessionExpiree }: AccueilProps) {
+export function Accueil({ identifiant, onOuvrirAtelier, onSessionExpiree }: AccueilProps) {
   useEffect(() => {
     let annule = false
     let intervalId: number | undefined
@@ -89,14 +90,15 @@ export function Accueil({ identifiant, onSessionExpiree }: AccueilProps) {
       <h1>Accueil</h1>
       <p className="accueil__session">Connecté en tant que {identifiant}.</p>
 
-      {/* Aucune donnée de parcours ne peut exister avant l'Epic 2 : cet état
-          "aucun parcours" est donc systématique, pas un cas parmi d'autres. */}
+      {/* Aucun historique de parcours enregistré n'existe avant l'Epic 5
+          (Mes parcours) : cet état "aucun parcours" reste donc systématique,
+          pas un cas parmi d'autres, même maintenant que l'Atelier (Epic 2)
+          est ouvert. */}
       <section className="accueil__etat-vide">
         <h2>Aucun parcours pour l'instant</h2>
         <p>Préparez votre premier parcours dans l'Atelier cartographique.</p>
-        <button type="button" className="accueil__cta" aria-disabled="true" title="Bientôt disponible">
-          <span>Ouvrir l'Atelier</span>
-          <span className="accueil__note">Bientôt disponible</span>
+        <button type="button" className="accueil__cta" onClick={onOuvrirAtelier}>
+          Ouvrir l'Atelier
         </button>
       </section>
     </main>

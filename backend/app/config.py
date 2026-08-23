@@ -50,6 +50,30 @@ class Settings(BaseSettings):
     register_rate_limit_max_attempts: int = 10
     register_rate_limit_window_seconds: float = 60.0
 
+    # Fournisseur de routage (AD-8) : Valhalla en V1, jamais appelé hors de
+    # `route_engine/adapters/outbound/valhalla_provider.py`. Le défaut cible
+    # une instance locale hors Docker Compose (qui, elle, surcharge cette
+    # variable pour joindre `valhalla:8002` sur le réseau Docker).
+    valhalla_url: str = "http://localhost:8002"
+    valhalla_timeout_seconds: float = 5.0
+
+    # Proxy `GET /api/geocode` vers Nominatim (recherche d'adresse, UX-DR17).
+    # `nominatim_user_agent` identifie l'application conformément à la
+    # politique d'usage Nominatim (un User-Agent générique/absent expose à un
+    # blocage silencieux).
+    nominatim_url: str = "https://nominatim.openstreetmap.org"
+    nominatim_timeout_seconds: float = 5.0
+    # ASCII strict : c'est une valeur d'en-tête HTTP (`User-Agent`), que
+    # `httpx` refuse d'encoder si elle contient un caractère hors ASCII.
+    nominatim_user_agent: str = "BikeRoute/0.1 (dev; no contact configured)"
+    # Limitation de débit sur `/api/geocode` (par IP + compte), même
+    # mécanisme que login/register -- Nominatim bloque silencieusement tout
+    # usage jugé abusif de son API publique (cf. docstring de
+    # `routers/geocode.py`), donc notre propre proxy ne doit pas laisser un
+    # compte le solliciter sans limite.
+    geocode_rate_limit_max_attempts: int = 10
+    geocode_rate_limit_window_seconds: float = 60.0
+
     @model_validator(mode="after")
     def _validate_bounds(self) -> Self:
         if self.password_min_length > self.password_max_length:
@@ -70,6 +94,10 @@ class Settings(BaseSettings):
             "login_rate_limit_window_seconds",
             "register_rate_limit_max_attempts",
             "register_rate_limit_window_seconds",
+            "valhalla_timeout_seconds",
+            "nominatim_timeout_seconds",
+            "geocode_rate_limit_max_attempts",
+            "geocode_rate_limit_window_seconds",
         ):
             if getattr(self, field) <= 0:
                 raise ValueError(f"{field} doit être strictement positif.")

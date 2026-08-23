@@ -2,17 +2,22 @@ import { useEffect, useState } from 'react'
 import { ApiError, getSession } from './api/client'
 import { AppHeader } from './components/AppHeader'
 import { Accueil, AccueilSkeleton } from './pages/Accueil'
+import { Atelier } from './pages/Atelier'
 import { Connexion } from './pages/Connexion'
 import { Inscription } from './pages/Inscription'
 
-// Pas de librairie de routage : 3 écrans, aucune URL profonde requise (cf.
-// Design Notes de spec-1-2) ; à réévaluer à l'atelier cartographique (Epic 2).
+// Pas de librairie de routage : encore peu d'écrans, aucune URL profonde
+// requise (cf. Design Notes de spec-1-2) -- réévalué à l'introduction de
+// l'Atelier (Story 2.1) : toujours pas d'URL profonde nécessaire (un seul
+// point d'entrée, depuis l'Accueil), donc pas encore de bascule vers
+// `react-router` (cf. Design Notes de spec-2-1).
 type Vue =
   | { nom: 'resolution' }
   | { nom: 'resolution-erreur' }
   | { nom: 'connexion'; messageExpiration?: string }
   | { nom: 'inscription' }
   | { nom: 'accueil'; identifiant: string }
+  | { nom: 'atelier'; identifiant: string }
 
 function App() {
   const [vue, setVue] = useState<Vue>({ nom: 'resolution' })
@@ -84,6 +89,7 @@ function App() {
         <AppHeader identifiant={vue.identifiant} onDeconnexion={() => setVue({ nom: 'connexion' })} />
         <Accueil
           identifiant={vue.identifiant}
+          onOuvrirAtelier={() => setVue({ nom: 'atelier', identifiant: vue.identifiant })}
           onSessionExpiree={() =>
             setVue({
               nom: 'connexion',
@@ -91,6 +97,15 @@ function App() {
             })
           }
         />
+      </>
+    )
+  }
+
+  if (vue.nom === 'atelier') {
+    return (
+      <>
+        <AppHeader identifiant={vue.identifiant} onDeconnexion={() => setVue({ nom: 'connexion' })} />
+        <Atelier onRetourAccueil={() => setVue({ nom: 'accueil', identifiant: vue.identifiant })} />
       </>
     )
   }

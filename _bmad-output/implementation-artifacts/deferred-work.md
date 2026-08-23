@@ -47,3 +47,17 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
   summary: Exposer la politique de longueur de mot de passe (`PASSWORD_MIN_LENGTH`/`MAX_LENGTH`) via un endpoint plutôt que de la dupliquer en dur dans `frontend/src/pages/Inscription.tsx`.
   evidence: Si l'env var backend change, le frontend dérive silencieusement sans qu'un redéploiement le corrige forcément. Deferred : risque faible (le seuil change rarement) ; exposer un endpoint dédié est disproportionné pour cet épic — le serveur reste de toute façon la source de vérité.
+
+## Deferred from: code review of story 2.1 (2026-08-23)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md`
+  summary: Définir une stratégie de cycle de vie pour la table `routes` (lignes brouillon/éphémères vs. enregistrement explicite, purge).
+  evidence: Chaque calcul auto (y compris un simple recalcul) insère une nouvelle ligne permanente ; sans dédup/nettoyage, la Story 2.3 (recalcul à chaque édition) produira une croissance non bornée bien avant qu'un utilisateur n'enregistre explicitement (Story 2.6). Nécessite une décision délibérée à trancher avec 2.3/2.6, pas un correctif isolé maintenant.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md`
+  summary: Décider d'une stratégie de service des tuiles de fond de carte (auto-hébergement/CDN) plutôt que d'appeler directement `tile.openstreetmap.org` depuis le navigateur.
+  evidence: La politique d'usage des tuiles OSM déconseille cet appel direct au-delà d'un usage dev léger ; Nominatim (service OSM comparable) a déjà reçu un traitement dédié dans cette story (`nominatim_user_agent`, note "Ask First" sur les extraits réels) que les tuiles n'ont pas reçu. À trancher avant tout trafic réel/production.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md`
+  summary: Donner un retour visuel explicite quand un clic carte est ignoré (3e point posé alors que départ+destination existent déjà).
+  evidence: Comportement correct pour cette story (l'édition du tracé est hors scope, Story 2.3), mais un clic silencieusement sans effet peut se lire comme un bug lors d'un test manuel. À traiter avec l'UI d'édition complète de la Story 2.3 plutôt qu'en isolation maintenant.

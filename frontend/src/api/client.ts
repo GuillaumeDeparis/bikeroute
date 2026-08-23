@@ -134,3 +134,87 @@ export async function getSession(): Promise<SessionResult> {
 
   throw await toApiError(response)
 }
+
+export interface PointCoordonnee {
+  lat: number
+  lon: number
+}
+
+export interface ResultatParcours {
+  id: string
+  statut: 'routed' | 'non_route'
+  geometrie: PointCoordonnee[]
+  pointsNonRoutes: PointCoordonnee[]
+  fournisseur: string
+  versionFournisseur: string
+  createdAt: string
+}
+
+export interface OptionsRequete {
+  /** Permet à l'appelant d'annuler une requête déjà en vol (nouveau point
+   * posé, nouvelle recherche, démontage) -- jamais d'appel bloqué en
+   * arrière-plan une fois son résultat devenu obsolète. */
+  signal?: AbortSignal
+}
+
+/** Calcule automatiquement le tracé départ→destination (exactement deux
+ * points en V1, cf. Boundaries de spec-2-1). Un point non rattachable au
+ * réseau routier connu ne lève pas : il ressort dans `pointsNonRoutes`, avec
+ * `geometrie` vide (jamais de segment direct de repli, cf. matrice I/O). */
+export async function calculerParcours(
+  points: PointCoordonnee[],
+  options?: OptionsRequete,
+): Promise<ResultatParcours> {
+  const response = await fetch('/api/routes/calculate', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ points }),
+    signal: options?.signal,
+  })
+
+  if (response.status === 201) {
+    const data = (await response.json()) as {
+      id: string
+      statut: 'routed' | 'non_route'
+      geometry: PointCoordonnee[]
+      unrouted_points: PointCoordonnee[]
+      provider: string
+      provider_version: string
+      created_at: string
+    }
+    return {
+      id: data.id,
+      statut: data.statut,
+      geometrie: data.geometry,
+      pointsNonRoutes: data.unrouted_points,
+      fournisseur: data.provider,
+      versionFournisseur: data.provider_version,
+      createdAt: data.created_at,
+    }
+  }
+
+  throw await toApiError(response)
+}
+
+export interface ResultatAdresse {
+  label: string
+  lat: number
+  lon: number
+}
+
+/** Recherche d'adresse (Place search, UX-DR17), proxyée côté serveur vers
+ * Nominatim -- le frontend n'appelle jamais l'API externe directement. */
+export async function rechercherAdresse(q: string, options?: OptionsRequete): Promise<ResultatAdresse[]> {
+  const response = await fetch(`/api/geocode?q=${encodeURIComponent(q)}`, {
+    method: 'GET',
+    credentials: 'include',
+    signal: options?.signal,
+  })
+
+  if (response.status === 200) {
+    return (await response.json()) as ResultatAdresse[]
+  }
+
+  throw await toApiError(response)
+}

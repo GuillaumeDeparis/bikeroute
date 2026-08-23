@@ -33,33 +33,18 @@
 
 .accueil__cta {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
   font-size: 1rem;
   padding: 0.6rem 1rem;
   border: none;
   border-radius: 0.25rem;
   background: #2a6f4d;
   color: #fff;
+  cursor: pointer;
 }
 
-/* `cursor: not-allowed` vit ici plutôt que dans la règle de base : si
-   Epic 2 active un jour ce CTA (retrait de aria-disabled) sans toucher ce
-   fichier, le curseur ne resterait pas "not-allowed" par erreur.
-   Couleurs explicites plutôt qu'une opacité : une opacité sur ce bouton se
-   compose avec le fond de la page (quasi blanc) et retombe autour de 2.6:1
-   pour le texte blanc, bien sous le seuil AA -- cf. même correctif sur
-   AppHeader.css. */
-.accueil__cta[aria-disabled='true'] {
-  cursor: not-allowed;
-  background: #cfe0d7;
-  color: #2f4f42;
-}
-
-.accueil__note {
-  font-size: 0.75rem;
-  font-weight: 400;
+.accueil__cta:hover,
+.accueil__cta:focus-visible {
+  background: #23583e;
 }
 
 /* Skeleton pendant la résolution de session : mêmes proportions que l'état

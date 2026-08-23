@@ -1,4 +1,5 @@
-"""Application FastAPI : montage du router auth + format d'erreur structuré commun."""
+"""Application FastAPI : montage des routers (auth, moteur de routage,
+géocodage) + format d'erreur structuré commun."""
 
 from __future__ import annotations
 
@@ -16,7 +17,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from .config import get_settings
 from .db import SessionLocal
 from .errors import AppError
+from .route_engine.adapters.inbound.routes_router import router as routes_router
+from .route_engine.bootstrap.routing import shutdown_routing_provider
 from .routers.auth import router as auth_router
+from .routers.geocode import router as geocode_router
 from .services.accounts import warm_up_dummy_hash
 
 # Taille max acceptée pour un corps de requête, avant même que les contrôles
@@ -56,6 +60,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warm_up_dummy_hash(get_settings())
     yield
+    # Libère le client HTTP du singleton `RoutingProvider` (AD-8) construit
+    # par `bootstrap/routing.py` -- rien d'autre ne le fait.
+    shutdown_routing_provider()
 
 
 app = FastAPI(title="BikeRoute API", lifespan=_lifespan)
@@ -64,6 +71,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(MaxBodySizeMiddleware)
 
 app.include_router(auth_router)
+app.include_router(routes_router)
+app.include_router(geocode_router)
 
 
 def _error_body(code: str, message: str, details: dict[str, Any]) -> dict[str, Any]:

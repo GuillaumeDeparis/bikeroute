@@ -21,7 +21,7 @@ from app.services.rate_limiting import reset_rate_limits
 def _clean_tables() -> Iterator[None]:
     yield
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE TABLE sessions, accounts RESTART IDENTITY CASCADE"))
+        connection.execute(text("TRUNCATE TABLE routes, sessions, accounts RESTART IDENTITY CASCADE"))
 
 
 @pytest.fixture(autouse=True)
