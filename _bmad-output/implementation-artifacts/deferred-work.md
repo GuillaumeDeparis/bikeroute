@@ -22,6 +22,14 @@
   summary: Ajouter des en-têtes de sécurité transverses (ex. `X-Frame-Options`/`frame-ancestors`) à l'API.
   evidence: Aucun en-tête anti-clickjacking n'est configuré dans `main.py` ; devient plus pertinent depuis que l'app expose une action destructrice en un clic (Déconnexion) dans le Account menu. Concerne toute l'API, pas une route en particulier.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-3-isolation-des-données-par-compte.md`
+  summary: Ajouter un endpoint "révoquer toutes mes autres sessions" en complément de `GET/DELETE /api/auth/sessions`.
+  evidence: Complément standard pour la récupération après compromission de compte ; aucune surface UX ne le prévoit encore, donc pas construit maintenant, mais la donnée (liste des sessions) existe déjà depuis cette story.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-3-isolation-des-données-par-compte.md`
+  summary: Enrichir `SessionListItem` d'un indice d'appareil (user-agent, IP approximative) pour distinguer les sessions listées.
+  evidence: Aujourd'hui un utilisateur avec plusieurs sessions actives ne peut pas savoir laquelle est laquelle avant de révoquer. À concevoir délibérément plutôt qu'en ajoutant une capture d'IP/UA par défaut, car AD-10 (minimisation des journaux) demande de ne pas collecter ce type de donnée sans raison explicite.
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
   summary: Ajouter un README racine documentant `docker compose up`, la migration Alembic hors Docker, et l'acceptation du certificat auto-signé du frontend en local.
   evidence: Rien ne documente ces étapes ; actuellement récupérable en lisant le code/spec, mais deviendra nécessaire dès qu'un deuxième contributeur rejoint le projet.

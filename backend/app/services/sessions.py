@@ -73,15 +73,16 @@ def invalidate_session(db: DBSession, session_id_raw: str | None) -> None:
     db.execute(delete(SessionModel).where(SessionModel.id == session_uuid))
 
 
-def get_current_account(
+def resolve_current_session(
     request: Request,
     db: DBSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
-) -> Account:
-    """Résout l'identité depuis le cookie de session ; 401 `SESSION_INVALIDE`
-    si le cookie est absent, malformé, orphelin ou expiré. C'est la seule
-    route qui établit *qui* est connecté ; l'autorisation par propriétaire
-    sur une ressource métier reste entière à 1.3, au-dessus de cette identité."""
+) -> SessionModel:
+    """Résout la session depuis le cookie ; 401 `SESSION_INVALIDE` si le
+    cookie est absent, malformé, orphelin ou expiré. Socle partagé par
+    `get_current_account` (qui en dérive le compte) et par toute route ayant
+    besoin de l'id de la session courante elle-même (ex. `GET /sessions`,
+    pour marquer `current: true`)."""
     session_id_raw = request.cookies.get(settings.session_cookie_name)
     if not session_id_raw:
         raise _session_invalide()
@@ -95,8 +96,35 @@ def get_current_account(
     if session is None or session.expires_at <= _utcnow():
         raise _session_invalide()
 
+    return session
+
+
+def get_current_account(
+    session: SessionModel = Depends(resolve_current_session),
+    db: DBSession = Depends(get_db),
+) -> Account:
+    """Résout l'identité depuis le cookie de session, via `resolve_current_session`.
+    C'est la seule route qui établit *qui* est connecté ; l'autorisation par
+    propriétaire sur une ressource métier reste entière à 1.3, au-dessus de
+    cette identité (voir `services/authorization.py`)."""
     account = db.execute(select(Account).where(Account.id == session.account_id)).scalar_one_or_none()
     if account is None:
         raise _session_invalide()
 
     return account
+
+
+def list_active_sessions(db: DBSession, account_id: uuid.UUID) -> list[SessionModel]:
+    """Sessions actives (non expirées) d'un compte, la plus récente d'abord.
+
+    Tri secondaire stable sur `id` (uuid7, donc lui-même ordonné dans le
+    temps) pour départager deux sessions dont `created_at` coïnciderait
+    exactement -- sans cela, l'ordre entre elles serait non déterministe.
+    """
+    return list(
+        db.execute(
+            select(SessionModel)
+            .where(SessionModel.account_id == account_id, SessionModel.expires_at > _utcnow())
+            .order_by(SessionModel.created_at.desc(), SessionModel.id.desc())
+        ).scalars()
+    )

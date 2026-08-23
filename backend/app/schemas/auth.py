@@ -1,5 +1,5 @@
-"""Schémas Pydantic pour `POST /register`, `POST /login`, `POST /logout` et
-`GET /session`."""
+"""Schémas Pydantic pour `POST /register`, `POST /login`, `POST /logout`,
+`GET /session`, `GET /sessions` et `DELETE /sessions/{session_id}`."""
 
 from __future__ import annotations
 
@@ -35,6 +35,19 @@ class SessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     identifiant: str
+
+
+class SessionListItem(BaseModel):
+    """Une ligne de `GET /sessions` : identité technique de la session, sans
+    jamais exposer `account_id` (déjà implicite -- la liste est scopée par le
+    compte authentifié)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    created_at: datetime
+    expires_at: datetime
+    current: bool
 
 
 class ErrorResponse(BaseModel):
