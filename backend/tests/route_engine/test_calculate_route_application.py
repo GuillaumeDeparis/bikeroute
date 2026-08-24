@@ -54,6 +54,30 @@ def test_persiste_un_parcours_non_route_sans_lever() -> None:
     assert route.result.unrouted_points == (destination,)
 
 
+def test_calcule_et_persiste_un_parcours_a_plus_de_deux_points() -> None:
+    """Boucle fermée (Story 2.2) : le départ répété en dernier point --
+    aucune borne haute côté application, qui reste topologie-agnostique
+    (cf. Design Notes de spec-2-2)."""
+    depart = Coordinate(lat=45.0, lon=5.0)
+    point_de_passage = Coordinate(lat=45.01, lon=5.01)
+    points = [depart, point_de_passage, depart]
+    result = RouteResult(geometry=(depart, point_de_passage, depart), unrouted_points=(), provider="valhalla", version="3.8.3")
+    provider = FakeRoutingProvider(result=result)
+    repository = InMemoryRouteRepository()
+    account_id = uuid.uuid4()
+
+    route = calculer_parcours(
+        routing_provider=provider,
+        repository=repository,
+        account_id=account_id,
+        points=points,
+    )
+
+    assert route.statut == STATUT_ROUTE
+    assert provider.calls == [points]
+    assert repository.saved == [route]
+
+
 def test_rejette_moins_de_deux_points() -> None:
     provider = FakeRoutingProvider(should_fail=True)
     repository = InMemoryRouteRepository()

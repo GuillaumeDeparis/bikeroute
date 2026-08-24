@@ -119,6 +119,61 @@
   color: #444;
 }
 
+.atelier__topologie-choix {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.atelier__topologie-choix button {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #2a6f4d;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #2a6f4d;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.atelier__topologie-choix button:hover,
+.atelier__topologie-choix button:focus-visible {
+  background: #2a6f4d;
+  color: #fff;
+}
+
+.atelier__points {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.atelier__qualification {
+  display: inline-flex;
+  gap: 0.4rem;
+  margin-left: 0.5rem;
+}
+
+.atelier__qualification button {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid #2a6f4d;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #2a6f4d;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.atelier__qualification button:hover,
+.atelier__qualification button:focus-visible {
+  background: #2a6f4d;
+  color: #fff;
+}
+
 .atelier__statut {
   color: #555;
   font-size: 0.9rem;

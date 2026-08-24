@@ -15,9 +15,10 @@ class PointEntreeRequest(BaseModel):
 
 
 class CalculerParcoursRequest(BaseModel):
-    # Exactement départ + destination en V1 : pas de multi-étapes avant la
-    # Story 2.2 (Never boundary de la spec).
-    points: list[PointEntreeRequest] = Field(min_length=2, max_length=2)
+    # Au moins départ + destination ; borne haute levée en Story 2.2 pour
+    # les topologies boucle/multi-étapes (le moteur route déjà n'importe
+    # quelle liste ordonnée de points, cf. spec-2-2).
+    points: list[PointEntreeRequest] = Field(min_length=2, max_length=50)
 
 
 class PointResponse(BaseModel):

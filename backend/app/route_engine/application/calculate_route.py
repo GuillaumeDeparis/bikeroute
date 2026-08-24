@@ -29,8 +29,10 @@ def calculer_parcours(
     account_id: uuid.UUID,
     points: list[Coordinate],
 ) -> Route:
-    """Un départ et une destination sont requis (V1 : pas de multi-étapes,
-    Story 2.2). Délègue le calcul au fournisseur injecté puis persiste le
+    """Au moins un départ et une destination sont requis ; au-delà, la liste
+    ordonnée porte n'importe quelle topologie résolue côté frontend (boucle,
+    aller simple, multi-étapes -- Story 2.2), le moteur restant topologie-
+    agnostique. Délègue le calcul au fournisseur injecté puis persiste le
     résultat -- routé ou non -- via le dépôt injecté ; ne décide jamais
     elle-même de rattachabilité au réseau (cela reste au fournisseur, AD-8)."""
     if len(points) < 2:

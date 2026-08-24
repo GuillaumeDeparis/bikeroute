@@ -103,11 +103,24 @@ class ValhallaRoutingProvider:
         except ValueError as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (corps non-JSON).") from exc
         try:
-            shape = body["trip"]["legs"][0]["shape"]
+            legs = body["trip"]["legs"]
+            shapes = [leg["shape"] for leg in legs]
+            if not shapes:
+                raise KeyError("legs")
         except (KeyError, IndexError) as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (forme du tracé absente).") from exc
 
-        return RouteResult(geometry=_decode_polyline6(shape), unrouted_points=(), provider="valhalla", version=version)
+        # N points (Story 2.2 : boucle/multi-étapes) produisent N-1 legs, un
+        # par segment consécutif -- ne garder que `legs[0]` tronquait le tracé
+        # à son premier segment. Chaque jonction entre deux legs partage son
+        # point de coordonnées (fin du leg précédent = début du suivant) : on
+        # ne le duplique pas dans la géométrie concaténée.
+        geometry: list[Coordinate] = []
+        for index, shape in enumerate(shapes):
+            decoded = _decode_polyline6(shape)
+            geometry.extend(decoded[1:] if index > 0 else decoded)
+
+        return RouteResult(geometry=tuple(geometry), unrouted_points=(), provider="valhalla", version=version)
 
     def _points_non_rattachables(self, points: list[Coordinate]) -> list[Coordinate]:
         payload = {

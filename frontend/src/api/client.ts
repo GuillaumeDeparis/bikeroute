@@ -157,10 +157,12 @@ export interface OptionsRequete {
   signal?: AbortSignal
 }
 
-/** Calcule automatiquement le tracé départ→destination (exactement deux
- * points en V1, cf. Boundaries de spec-2-1). Un point non rattachable au
- * réseau routier connu ne lève pas : il ressort dans `pointsNonRoutes`, avec
- * `geometrie` vide (jamais de segment direct de repli, cf. matrice I/O). */
+/** Calcule automatiquement le tracé sur la liste de points ordonnée fournie
+ * par l'appelant (au moins deux : topologie -- boucle/aller simple/multi-
+ * étapes -- résolue côté frontend, cf. spec-2-2 ; la boucle envoie le départ
+ * répété en dernier point). Un point non rattachable au réseau routier connu
+ * ne lève pas : il ressort dans `pointsNonRoutes`, avec `geometrie` vide
+ * (jamais de segment direct de repli, cf. matrice I/O). */
 export async function calculerParcours(
   points: PointCoordonnee[],
   options?: OptionsRequete,

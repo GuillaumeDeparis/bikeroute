@@ -21,9 +21,19 @@ const CENTRE_PAR_DEFAUT: [number, number] = [46.6, 2.4]
 const ZOOM_PAR_DEFAUT = 6
 const ZOOM_SUR_POINT = 13
 
-type Role = 'depart' | 'destination'
+type Role = 'depart' | 'point_de_passage' | 'etape_utilisateur' | 'destination'
+
+/** Boucle : pas de Destination, chaque point posé après le départ est un
+ * Point de passage, fermeture par répétition du départ en fin de liste.
+ * Aller simple : comportement 2.1 inchangé. Multi-étapes : chaque point naît
+ * Point de passage puis se qualifie une fois via le sélecteur inline (cf.
+ * Design Notes de la spec). */
+type Topologie = 'boucle' | 'aller_simple' | 'multi_etapes'
 
 interface PointAtelier {
+  // Identifiant stable (pas le seul `role`, partagé par plusieurs Points de
+  // passage en boucle/multi-étapes) -- clé React et bandeau non-routé.
+  id: string
   role: Role
   lat: number
   lon: number
@@ -31,7 +41,27 @@ interface PointAtelier {
 }
 
 function libelleRole(role: Role): string {
-  return role === 'depart' ? 'Départ' : 'Destination'
+  switch (role) {
+    case 'depart':
+      return 'Départ'
+    case 'point_de_passage':
+      return 'Point de passage'
+    case 'etape_utilisateur':
+      return 'Étape utilisateur'
+    case 'destination':
+      return 'Destination'
+  }
+}
+
+function libelleTopologie(topologie: Topologie): string {
+  switch (topologie) {
+    case 'boucle':
+      return 'Boucle'
+    case 'aller_simple':
+      return 'Aller simple'
+    case 'multi_etapes':
+      return 'Multi-étapes'
+  }
 }
 
 /** Une requête annulée volontairement (nouveau point posé avant la fin du
@@ -75,6 +105,9 @@ interface AtelierProps {
 
 export function Atelier({ onRetourAccueil }: AtelierProps) {
   const [points, setPoints] = useState<PointAtelier[]>([])
+  // Choix imposé par le Contextual menu dès le départ posé -- jamais de
+  // valeur par défaut implicite (cf. Boundaries de la spec-2-2).
+  const [topologie, setTopologie] = useState<Topologie | undefined>(undefined)
   const [trace, setTrace] = useState<PointCoordonnee[]>([])
   const [calculEnCours, setCalculEnCours] = useState(false)
   const [erreurCalcul, setErreurCalcul] = useState<string | undefined>(undefined)
@@ -95,6 +128,30 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
 
   const depart = points.find((point) => point.role === 'depart')
   const destination = points.find((point) => point.role === 'destination')
+  const pointsDePassage = points.filter(
+    (point) => point.role === 'point_de_passage' || point.role === 'etape_utilisateur',
+  )
+  // Dernier point posé : seul celui-là porte le sélecteur inline de
+  // qualification en Multi-étapes ("pas de ré-édition ultérieure", Design
+  // Notes) -- et seulement tant qu'aucune Destination n'est déjà qualifiée
+  // (verrouillage post-Destination).
+  const dernierPoint = points[points.length - 1]
+  const peutQualifierDernierPoint =
+    topologie === 'multi_etapes' && !destination && dernierPoint !== undefined && dernierPoint.role === 'point_de_passage'
+
+  // Liste ordonnée de points à envoyer au moteur de calcul, propre à chaque
+  // topologie (le moteur reste topologie-agnostique, cf. Design Notes) :
+  // `undefined` tant que la topologie n'a pas assez de points pour calculer.
+  let pointsCalcul: PointAtelier[] | undefined
+  if (depart && topologie === 'aller_simple' && destination) {
+    pointsCalcul = [depart, destination]
+  } else if (depart && topologie === 'boucle' && pointsDePassage.length > 0) {
+    // Fermeture de boucle par simple répétition du départ en fin de liste
+    // (aucun itinéraire de retour "intelligent" recherché, cf. Never).
+    pointsCalcul = [...points, depart]
+  } else if (depart && topologie === 'multi_etapes' && destination) {
+    pointsCalcul = points
+  }
 
   // Mémoïsé sur des dépendances primitives (lat/lon, pas l'objet `points[0]`
   // lui-même) : `points.find(...)`/un tableau littéral recréerait une
@@ -114,13 +171,45 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     setResultatsRecherche(undefined)
     setPoints((precedent) => {
       if (precedent.length === 0) {
-        return [{ role: 'depart', lat, lon, nonRoute: false }]
+        return [{ id: crypto.randomUUID(), role: 'depart', lat, lon, nonRoute: false }]
       }
-      if (precedent.length === 1) {
-        return [...precedent, { role: 'destination', lat, lon, nonRoute: false }]
+      // Départ posé, topologie pas encore choisie : le Contextual menu
+      // l'impose avant tout point supplémentaire (jamais de valeur par
+      // défaut implicite, cf. Boundaries).
+      if (!topologie) {
+        return precedent
       }
-      // Boucle/multi-étapes hors scope (Story 2.2) : un 3e point est ignoré.
-      return precedent
+      if (topologie === 'aller_simple') {
+        // Comportement 2.1 conservé : 2e point = Destination, 3e ignoré.
+        if (precedent.length === 1) {
+          return [...precedent, { id: crypto.randomUUID(), role: 'destination', lat, lon, nonRoute: false }]
+        }
+        return precedent
+      }
+      if (topologie === 'boucle') {
+        // Jamais de Destination en boucle ; aucun verrouillage, chaque clic
+        // ajoute un Point de passage (cf. Boundaries).
+        return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+      }
+      // Multi-étapes : verrouillage dès qu'une Destination est qualifiée
+      // (même règle que le 3e point de l'aller simple, cf. Design Notes).
+      const destinationDejaQualifiee = precedent.some((point) => point.role === 'destination')
+      if (destinationDejaQualifiee) {
+        return precedent
+      }
+      return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+    })
+  }
+
+  // Qualifie le dernier point posé en Multi-étapes (sélecteur inline, une
+  // seule fois -- pas de ré-édition ultérieure, cf. Design Notes).
+  function qualifierDernierPoint(role: 'etape_utilisateur' | 'destination') {
+    setPoints((precedent) => {
+      if (precedent.length === 0) {
+        return precedent
+      }
+      const dernierIndex = precedent.length - 1
+      return precedent.map((point, index) => (index === dernierIndex ? { ...point, role } : point))
     })
   }
 
@@ -132,16 +221,24 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // de calcul auto (qui exige `depart` ET `destination`) durablement bloqué.
   function reinitialiserPoints() {
     setPoints([])
+    setTopologie(undefined)
     setTrace([])
     setErreurCalcul(undefined)
   }
 
-  // Calcul déclenché automatiquement dès que départ + destination sont
-  // posés, sans aucun paramètre sportif (cf. Boundaries de la spec).
+  // Signature primitive de `pointsCalcul` (jamais l'objet/tableau lui-même,
+  // recréé à chaque render) : seule une valeur qui change réellement doit
+  // redéclencher l'effet, comme pour `premierPointPose` ci-dessus.
+  const cleCalcul = pointsCalcul?.map((point) => `${point.lat}:${point.lon}`).join('|')
+
+  // Calcul déclenché automatiquement dès que la topologie active a assez de
+  // points qualifiés (cf. `pointsCalcul` ci-dessus), sans aucun paramètre
+  // sportif (cf. Boundaries de la spec).
   useEffect(() => {
-    if (!depart || !destination) {
+    if (!pointsCalcul) {
       return
     }
+    const aEnvoyer = pointsCalcul
     let annule = false
     // Un point posé de nouveau (ou le démontage) avant la fin de ce calcul
     // annule la requête en vol côté réseau, pas seulement côté affichage :
@@ -150,15 +247,12 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     // même préoccupation que sur la recherche ci-dessous).
     const controleur = new AbortController()
 
-    async function lancerCalcul(depart: PointAtelier, destination: PointAtelier) {
+    async function lancerCalcul(points: PointAtelier[]) {
       setCalculEnCours(true)
       setErreurCalcul(undefined)
       try {
         const resultat = await calculerParcours(
-          [
-            { lat: depart.lat, lon: depart.lon },
-            { lat: destination.lat, lon: destination.lon },
-          ],
+          points.map((point) => ({ lat: point.lat, lon: point.lon })),
           { signal: controleur.signal },
         )
         if (annule) {
@@ -193,14 +287,14 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       }
     }
 
-    lancerCalcul(depart, destination)
+    lancerCalcul(aEnvoyer)
 
     return () => {
       annule = true
       controleur.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [depart?.lat, depart?.lon, destination?.lat, destination?.lon])
+  }, [cleCalcul])
 
   async function lancerRecherche(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -286,16 +380,69 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           )}
         </form>
 
-        {depart && !destination && (
+        {/* Départ posé, topologie pas encore choisie : le Contextual menu
+            l'impose avant tout autre point (jamais de valeur par défaut
+            implicite, cf. Boundaries). */}
+        {depart && !topologie && (
           <div className="atelier__menu-contextuel" role="region" aria-label="Choix de la topologie">
             <p>Départ posé.</p>
-            {/* Le choix complet de topologie (boucle/aller simple/multi-étapes)
-                est hors scope de cette story (Story 2.2) : on se contente ici
-                de le nommer, sans UI de sélection dédiée. */}
+            <p className="atelier__topologie">Topologie</p>
+            <p>Choisissez une topologie avant de poser un autre point :</p>
+            <div className="atelier__topologie-choix" role="group" aria-label="Topologie">
+              <button type="button" onClick={() => setTopologie('boucle')}>
+                Boucle
+              </button>
+              <button type="button" onClick={() => setTopologie('aller_simple')}>
+                Aller simple
+              </button>
+              <button type="button" onClick={() => setTopologie('multi_etapes')}>
+                Multi-étapes
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Topologie choisie : le menu de choix se ferme, remplacé par le
+            statut de la topologie active -- seuls les rôles applicables à
+            cette topologie sont affichés (cf. matrice I/O). */}
+        {depart && topologie && (
+          <div className="atelier__menu-contextuel" role="region" aria-label="Parcours en cours">
             <p className="atelier__topologie">
-              Topologie : <strong>Aller simple</strong> (autres topologies bientôt disponibles)
+              Topologie : <strong>{libelleTopologie(topologie)}</strong>
             </p>
-            <p>Placez une destination sur la carte ou via la recherche pour calculer le tracé.</p>
+            {topologie === 'boucle' && (
+              <p>
+                Chaque point posé devient un Point de passage ; le départ ferme la boucle automatiquement au calcul.
+              </p>
+            )}
+            {topologie === 'aller_simple' && !destination && (
+              <p>Placez une destination sur la carte ou via la recherche pour calculer le tracé.</p>
+            )}
+            {topologie === 'multi_etapes' && !destination && (
+              <p>
+                Placez des points de passage, puis qualifiez l'un d'eux « Destination » pour déclencher le calcul.
+              </p>
+            )}
+
+            {points.length > 1 && (
+              <ul className="atelier__points">
+                {points.map((point) => (
+                  <li key={point.id}>
+                    {libelleRole(point.role)}
+                    {peutQualifierDernierPoint && point.id === dernierPoint.id && (
+                      <span className="atelier__qualification" role="group" aria-label="Qualifier ce point">
+                        <button type="button" onClick={() => qualifierDernierPoint('etape_utilisateur')}>
+                          Étape utilisateur
+                        </button>
+                        <button type="button" onClick={() => qualifierDernierPoint('destination')}>
+                          Destination
+                        </button>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
@@ -316,7 +463,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
             <p>Point{pointsNonRoutes.length > 1 ? 's' : ''} non rattachable{pointsNonRoutes.length > 1 ? 's' : ''} au réseau routier connu.</p>
             <ul>
               {pointsNonRoutes.map((point) => (
-                <li key={point.role}>{libelleRole(point.role)}</li>
+                <li key={point.id}>{libelleRole(point.role)}</li>
               ))}
             </ul>
             {/* Une seule action, jamais une par point : retirer uniquement le
@@ -342,7 +489,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           <EcouteurClicCarte onClic={poserPoint} />
           <RecentrageInitial centre={premierPointPose} />
           {points.map((point) => (
-            <Marker key={point.role} position={[point.lat, point.lon]} />
+            <Marker key={point.id} position={[point.lat, point.lon]} />
           ))}
           {trace.length > 0 && <Polyline positions={trace.map((point) => [point.lat, point.lon])} />}
         </MapContainer>

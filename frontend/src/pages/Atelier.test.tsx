@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { Atelier } from './Atelier'
@@ -51,18 +51,35 @@ afterEach(() => {
   dernierGestionnaireClic = undefined
 })
 
-describe('Atelier — matrice I/O de spec-2-1', () => {
-  it('premier point posé (clic carte) : devient le départ, le menu contextuel demande la topologie', async () => {
+const RESULTAT_ROUTE_DEFAUT = {
+  id: 'r1',
+  statut: 'routed' as const,
+  geometrie: [
+    { lat: 45.75, lon: 4.85 },
+    { lat: 45.76, lon: 4.86 },
+  ],
+  pointsNonRoutes: [],
+  fournisseur: 'valhalla',
+  versionFournisseur: '3.8.3',
+  createdAt: '2026-08-23T00:00:00Z',
+}
+
+describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1', () => {
+  it('premier point posé (clic carte) : devient le départ, le menu contextuel impose le choix de topologie', async () => {
     render(<Atelier onRetourAccueil={vi.fn()} />)
 
     cliquerCarte(45.75, 4.85)
 
-    expect(await screen.findByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
+    const menu = await screen.findByRole('region', { name: 'Choix de la topologie' })
+    expect(menu).toBeInTheDocument()
     expect(screen.getByText(/Topologie/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Boucle' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Aller simple' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Multi-étapes' })).toBeInTheDocument()
     expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
   })
 
-  it('premier point posé (recherche) : devient aussi le départ', async () => {
+  it('premier point posé (recherche) : devient aussi le départ, menu de choix de topologie affiché', async () => {
     const user = userEvent.setup()
     vi.mocked(rechercherAdresse).mockResolvedValue([{ label: 'Lyon, France', lat: 45.75, lon: 4.85 }])
 
@@ -75,167 +92,291 @@ describe('Atelier — matrice I/O de spec-2-1', () => {
     expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
   })
 
-  it('destination posée : calcule automatiquement un tracé routé, sans paramètre sportif', async () => {
-    vi.mocked(calculerParcours).mockResolvedValue({
-      id: 'r1',
-      statut: 'routed',
-      geometrie: [
+  it('un point posé avant le choix de topologie est ignoré (jamais de valeur par défaut implicite)', async () => {
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    cliquerCarte(45.75, 4.85) // départ
+    cliquerCarte(45.76, 4.86) // ignoré : topologie pas encore choisie
+
+    expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
+    expect(calculerParcours).not.toHaveBeenCalled()
+  })
+
+  describe('Aller simple (régression 2.1)', () => {
+    it('2e point posé après le choix « Aller simple » : calcule automatiquement un tracé routé, sans paramètre sportif', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
+
+      await waitFor(() =>
+        expect(calculerParcours).toHaveBeenCalledWith(
+          [
+            { lat: 45.75, lon: 4.85 },
+            { lat: 45.76, lon: 4.86 },
+          ],
+          expect.objectContaining({ signal: expect.any(AbortSignal) }),
+        ),
+      )
+      // Aucun paramètre sportif n'est envoyé : le premier argument (les
+      // points) ne contient que `lat`/`lon`, rien d'autre.
+      expect(vi.mocked(calculerParcours).mock.calls[0][0]).toEqual([
         { lat: 45.75, lon: 4.85 },
         { lat: 45.76, lon: 4.86 },
-      ],
-      pointsNonRoutes: [],
-      fournisseur: 'valhalla',
-      versionFournisseur: '3.8.3',
-      createdAt: '2026-08-23T00:00:00Z',
+      ])
+
+      const trace = await screen.findByTestId('trace')
+      expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toEqual([
+        [45.75, 4.85],
+        [45.76, 4.86],
+      ])
     })
 
-    render(<Atelier onRetourAccueil={vi.fn()} />)
-    cliquerCarte(45.75, 4.85)
-    cliquerCarte(45.76, 4.86)
+    it('3e point posé après la destination : ignoré (verrouillage, comportement 2.1)', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
 
-    await waitFor(() =>
-      expect(calculerParcours).toHaveBeenCalledWith(
-        [
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
+      await screen.findByTestId('trace')
+      cliquerCarte(46.0, 6.0)
+
+      expect(screen.getAllByTestId('marqueur')).toHaveLength(2)
+      expect(calculerParcours).toHaveBeenCalledTimes(1)
+    })
+
+    it('point non rattachable au réseau : reste marqué non routé, bandeau proposant de le supprimer, aucun tracé affiché', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue({
+        id: 'r3',
+        statut: 'non_route',
+        geometrie: [],
+        pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(46.0, 6.5)
+
+      const bandeau = await screen.findByRole('alert')
+      expect(bandeau).toHaveTextContent(/non rattachable/)
+      expect(screen.queryByTestId('trace')).not.toBeInTheDocument()
+
+      // « Supprimer » réinitialise tout le flux (P4, y compris la
+      // topologie) : plus aucun marqueur ni menu contextuel après le clic.
+      await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+      expect(screen.queryByRole('region', { name: 'Choix de la topologie' })).not.toBeInTheDocument()
+    })
+
+    it('régression P4 : supprimer un départ non routé permet de reposer un nouveau départ (pas un point orphelin)', async () => {
+      const user = userEvent.setup()
+      // Le départ est le point non routé cette fois (pas la destination) :
+      // c'est exactement le chemin qui, avant correctif, laissait `depart`
+      // `undefined` pour toujours après suppression.
+      vi.mocked(calculerParcours).mockResolvedValueOnce({
+        id: 'r4',
+        statut: 'non_route',
+        geometrie: [],
+        pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(46.0, 6.5) // départ, hors réseau
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86) // destination, routable
+
+      await screen.findByRole('alert')
+      await user.click(screen.getByRole('button', { name: 'Supprimer' }))
+      expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+
+      // Reposer un point doit redevenir un départ, avec un nouveau choix de
+      // topologie imposé (pas un second point "destination" empilé).
+      cliquerCarte(45.75, 4.85)
+      expect(await screen.findByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
+      expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
+
+      // Et le calcul automatique doit pouvoir se redéclencher normalement.
+      vi.mocked(calculerParcours).mockResolvedValueOnce({
+        id: 'r5',
+        statut: 'routed',
+        geometrie: [
           { lat: 45.75, lon: 4.85 },
           { lat: 45.76, lon: 4.86 },
         ],
-        expect.objectContaining({ signal: expect.any(AbortSignal) }),
-      ),
-    )
-    // Aucun paramètre sportif n'est envoyé : le premier argument (les
-    // points) ne contient que `lat`/`lon`, rien d'autre -- le second
-    // argument n'est que la plomberie d'annulation (`AbortSignal`, P13),
-    // jamais un paramètre métier envoyé au calcul.
-    expect(vi.mocked(calculerParcours).mock.calls[0][0]).toEqual([
-      { lat: 45.75, lon: 4.85 },
-      { lat: 45.76, lon: 4.86 },
-    ])
+        pointsNonRoutes: [],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
 
-    const trace = await screen.findByTestId('trace')
-    expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toEqual([
-      [45.75, 4.85],
-      [45.76, 4.86],
-    ])
-  })
-
-  it('consultation du tracé : le tracé affiché correspond à la géométrie renvoyée par le fournisseur', async () => {
-    vi.mocked(calculerParcours).mockResolvedValue({
-      id: 'r2',
-      statut: 'routed',
-      geometrie: [
-        { lat: 45.75, lon: 4.85 },
-        { lat: 45.751, lon: 4.851 },
-        { lat: 45.76, lon: 4.86 },
-      ],
-      pointsNonRoutes: [],
-      fournisseur: 'valhalla',
-      versionFournisseur: '3.8.3',
-      createdAt: '2026-08-23T00:00:00Z',
+      const trace = await screen.findByTestId('trace')
+      expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toEqual([
+        [45.75, 4.85],
+        [45.76, 4.86],
+      ])
     })
 
-    render(<Atelier onRetourAccueil={vi.fn()} />)
-    cliquerCarte(45.75, 4.85)
-    cliquerCarte(45.76, 4.86)
+    it('erreur du moteur de routage : le dernier tracé valide reste affiché avec une erreur structurée', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockRejectedValue(
+        new ApiError(502, {
+          code: 'MOTEUR_ROUTAGE_INDISPONIBLE',
+          message: 'Le moteur de routage est indisponible. Réessayez plus tard.',
+          details: {},
+          correlationId: 'abc',
+        }),
+      )
 
-    const trace = await screen.findByTestId('trace')
-    expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toHaveLength(3)
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
+
+      expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
+    })
   })
 
-  it('point non rattachable au réseau : reste marqué non routé, bandeau proposant de le supprimer, aucun tracé affiché', async () => {
-    const user = userEvent.setup()
-    vi.mocked(calculerParcours).mockResolvedValue({
-      id: 'r3',
-      statut: 'non_route',
-      geometrie: [],
-      pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
-      fournisseur: 'valhalla',
-      versionFournisseur: '3.8.3',
-      createdAt: '2026-08-23T00:00:00Z',
+  describe('Boucle', () => {
+    it('choix Boucle : le menu de choix se ferme, les clics suivants posent des points de passage, aucune destination proposée', async () => {
+      const user = userEvent.setup()
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Boucle' }))
+      expect(screen.queryByRole('region', { name: 'Choix de la topologie' })).not.toBeInTheDocument()
+
+      cliquerCarte(45.76, 4.86)
+
+      expect(screen.getByText('Point de passage')).toBeInTheDocument()
+      expect(screen.queryByText('Destination')).not.toBeInTheDocument()
     })
 
-    render(<Atelier onRetourAccueil={vi.fn()} />)
-    cliquerCarte(45.75, 4.85)
-    cliquerCarte(46.0, 6.5)
+    it('1 point de passage posé : calcule un tracé fermé départ→point→départ', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue({
+        id: 'boucle-1',
+        statut: 'routed',
+        geometrie: [
+          { lat: 45.75, lon: 4.85 },
+          { lat: 45.76, lon: 4.86 },
+          { lat: 45.75, lon: 4.85 },
+        ],
+        pointsNonRoutes: [],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
 
-    const bandeau = await screen.findByRole('alert')
-    expect(bandeau).toHaveTextContent(/non rattachable/)
-    expect(screen.queryByTestId('trace')).not.toBeInTheDocument()
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Boucle' }))
+      cliquerCarte(45.76, 4.86)
 
-    // « Supprimer » réinitialise tout le flux (P4) : retirer uniquement le
-    // point non routé laisserait l'autre orphelin (cf. commentaire de
-    // `reinitialiserPoints` dans Atelier.tsx) -- plus aucun marqueur après
-    // le clic, pas "un de moins".
-    await user.click(screen.getByRole('button', { name: 'Supprimer' }))
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+      await waitFor(() =>
+        expect(vi.mocked(calculerParcours).mock.calls[0][0]).toEqual([
+          { lat: 45.75, lon: 4.85 },
+          { lat: 45.76, lon: 4.86 },
+          { lat: 45.75, lon: 4.85 },
+        ]),
+      )
+
+      const trace = await screen.findByTestId('trace')
+      expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toHaveLength(3)
+    })
   })
 
-  it('régression P4 : supprimer un départ non routé permet de reposer un nouveau départ (pas un point orphelin)', async () => {
-    const user = userEvent.setup()
-    // Le départ est le point non routé cette fois (pas la destination) :
-    // c'est exactement le chemin qui, avant correctif, laissait `depart`
-    // `undefined` pour toujours après suppression.
-    vi.mocked(calculerParcours).mockResolvedValueOnce({
-      id: 'r4',
-      statut: 'non_route',
-      geometrie: [],
-      pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
-      fournisseur: 'valhalla',
-      versionFournisseur: '3.8.3',
-      createdAt: '2026-08-23T00:00:00Z',
+  describe('Multi-étapes', () => {
+    it('choix Multi-étapes : les clics suivants posent des points de passage, sélecteur de rôle inline sur le dernier point posé', async () => {
+      const user = userEvent.setup()
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+      cliquerCarte(45.76, 4.86)
+
+      const items = screen.getAllByRole('listitem')
+      expect(items).toHaveLength(2) // départ + point de passage n°1
+      expect(items[1]).toHaveTextContent('Point de passage')
+      expect(within(items[1]).getByRole('button', { name: 'Étape utilisateur' })).toBeInTheDocument()
+      expect(within(items[1]).getByRole('button', { name: 'Destination' })).toBeInTheDocument()
+      expect(calculerParcours).not.toHaveBeenCalled()
     })
 
-    render(<Atelier onRetourAccueil={vi.fn()} />)
-    cliquerCarte(46.0, 6.5) // départ, hors réseau
-    cliquerCarte(45.76, 4.86) // destination, routable
+    it('destination qualifiée : calcule avec tous les points dans l’ordre ; points suivants ignorés', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue({
+        id: 'multi-1',
+        statut: 'routed',
+        geometrie: [
+          { lat: 45.75, lon: 4.85 },
+          { lat: 45.76, lon: 4.86 },
+          { lat: 45.77, lon: 4.87 },
+        ],
+        pointsNonRoutes: [],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
 
-    await screen.findByRole('alert')
-    await user.click(screen.getByRole('button', { name: 'Supprimer' }))
-    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85) // départ
+      await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+      cliquerCarte(45.76, 4.86) // point de passage n°1
 
-    // Reposer un point doit redevenir un départ (pas un second point
-    // "destination" empilé sur l'ancien, comme avant le correctif).
-    cliquerCarte(45.75, 4.85)
-    expect(await screen.findByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
-    expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
+      let items = screen.getAllByRole('listitem')
+      expect(items).toHaveLength(2)
 
-    // Et le calcul automatique doit pouvoir se redéclencher normalement.
-    vi.mocked(calculerParcours).mockResolvedValueOnce({
-      id: 'r5',
-      statut: 'routed',
-      geometrie: [
-        { lat: 45.75, lon: 4.85 },
-        { lat: 45.76, lon: 4.86 },
-      ],
-      pointsNonRoutes: [],
-      fournisseur: 'valhalla',
-      versionFournisseur: '3.8.3',
-      createdAt: '2026-08-23T00:00:00Z',
+      // Qualifier le 1er point de passage "Étape utilisateur" : pas de
+      // calcul déclenché, pas de ré-édition ultérieure -- son sélecteur ne
+      // réapparaît jamais, y compris une fois qu'il n'est plus le dernier
+      // point posé.
+      await user.click(within(items[1]).getByRole('button', { name: 'Étape utilisateur' }))
+      expect(calculerParcours).not.toHaveBeenCalled()
+      items = screen.getAllByRole('listitem')
+      expect(items[1]).toHaveTextContent('Étape utilisateur')
+      expect(within(items[1]).queryByRole('button')).not.toBeInTheDocument()
+
+      cliquerCarte(45.77, 4.87) // point de passage n°2 : devient le dernier point posé
+      items = screen.getAllByRole('listitem')
+      expect(items).toHaveLength(3)
+      expect(items[2]).toHaveTextContent('Point de passage')
+      expect(within(items[2]).getByRole('button', { name: 'Destination' })).toBeInTheDocument()
+      // Le point n°1, déjà qualifié, ne récupère pas de sélecteur.
+      expect(within(items[1]).queryByRole('button')).not.toBeInTheDocument()
+
+      await user.click(within(items[2]).getByRole('button', { name: 'Destination' }))
+
+      await waitFor(() =>
+        expect(vi.mocked(calculerParcours).mock.calls[0][0]).toEqual([
+          { lat: 45.75, lon: 4.85 },
+          { lat: 45.76, lon: 4.86 },
+          { lat: 45.77, lon: 4.87 },
+        ]),
+      )
+
+      // Verrouillage post-Destination (même précédent que l'aller simple) :
+      // un point posé ensuite est ignoré.
+      await screen.findByTestId('trace')
+      cliquerCarte(46.0, 6.0)
+      expect(screen.getAllByTestId('marqueur')).toHaveLength(3)
+      expect(calculerParcours).toHaveBeenCalledTimes(1)
     })
-    cliquerCarte(45.76, 4.86)
-
-    const trace = await screen.findByTestId('trace')
-    expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toEqual([
-      [45.75, 4.85],
-      [45.76, 4.86],
-    ])
-  })
-
-  it('erreur du moteur de routage : le dernier tracé valide reste affiché avec une erreur structurée', async () => {
-    vi.mocked(calculerParcours).mockRejectedValue(
-      new ApiError(502, {
-        code: 'MOTEUR_ROUTAGE_INDISPONIBLE',
-        message: 'Le moteur de routage est indisponible. Réessayez plus tard.',
-        details: {},
-        correlationId: 'abc',
-      }),
-    )
-
-    render(<Atelier onRetourAccueil={vi.fn()} />)
-    cliquerCarte(45.75, 4.85)
-    cliquerCarte(45.76, 4.86)
-
-    expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
   })
 
   it('recherche sans résultat : « Aucun lieu trouvé. », sans poser de point', async () => {

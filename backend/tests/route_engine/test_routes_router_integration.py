@@ -59,6 +59,34 @@ def test_calcul_reussi_persiste_et_renvoie_le_trace(client: TestClient, db_sessi
     assert str(rows[0].id) == body["id"]
 
 
+def test_calcul_a_plus_de_deux_points_est_accepte(client: TestClient, db_session) -> None:
+    """Boucle fermée (Story 2.2) : départ + point de passage + départ répété
+    -- la borne `max_length` de `CalculerParcoursRequest.points` a été levée
+    de 2 à 50, le moteur restant topologie-agnostique."""
+    _inscrire_et_connecter(client)
+    depart = Coordinate(lat=DEPART["lat"], lon=DEPART["lon"])
+    point_de_passage = Coordinate(lat=45.002, lon=5.002)
+    points_requete = [DEPART, {"lat": 45.002, "lon": 5.002}, DEPART]
+    result = RouteResult(
+        geometry=(depart, point_de_passage, depart),
+        unrouted_points=(),
+        provider="valhalla",
+        version="3.8.3",
+    )
+    _override_provider(FakeRoutingProvider(result=result))
+
+    response = client.post("/api/routes/calculate", json={"points": points_requete})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["statut"] == "routed"
+    assert body["geometry"] == [DEPART, {"lat": 45.002, "lon": 5.002}, DEPART]
+
+    rows = list(db_session.execute(select(RouteModel)).scalars())
+    assert len(rows) == 1
+    assert rows[0].statut == "routed"
+
+
 def test_point_non_routable_est_marque_sans_segment_direct(client: TestClient, db_session) -> None:
     _inscrire_et_connecter(client)
     destination = Coordinate(lat=DESTINATION["lat"], lon=DESTINATION["lon"])
