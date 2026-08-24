@@ -61,3 +61,11 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md`
   summary: Donner un retour visuel explicite quand un clic carte est ignoré (3e point posé alors que départ+destination existent déjà).
   evidence: Comportement correct pour cette story (l'édition du tracé est hors scope, Story 2.3), mais un clic silencieusement sans effet peut se lire comme un bug lors d'un test manuel. À traiter avec l'UI d'édition complète de la Story 2.3 plutôt qu'en isolation maintenant.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-éditer-un-parcours-sur-la-carte.md`
+  summary: Infléchir le tracé en glissant une portion (pas un point existant) : insérer/déplacer un point via un marqueur discret au milieu de chaque segment de `points` (y compris le segment de fermeture Départ↔dernier point en Boucle).
+  evidence: 4e AC de la Story 2.3 (epics.md), mécanique la plus neuve du lot (nouveau pattern de marqueurs milieu-de-segment, cas particulier Boucle) ; carvée hors de cette spec pour rester dans le budget de taille recommandé (900-1600 tokens) -- les 3 autres AC (ajouter/déplacer/supprimer-réordonner un point) livrent déjà une capacité d'édition complète sans elle.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-éditer-un-parcours-sur-la-carte.md`
+  summary: Le rattachement "non routé" (`nonRoute`) associe un point à sa réponse via une clé `${lat}:${lon}` plutôt que via son `id` stable -- deux points partageant exactement les mêmes coordonnées deviennent indiscernables pour cet état.
+  evidence: Convention héritée de la Story 2.1 (avant l'existence d'un `id` par point), donc pas causée par cette story ; mais le déplacement de point par glisser-déposer (2.3) rend une collision de coordonnées nettement plus atteignable qu'avant (déposer un marqueur exactement sur un autre). Probabilité réelle faible (précision flottante d'un glisser souris), mais signalée indépendamment par deux couches de revue.

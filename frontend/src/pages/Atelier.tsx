@@ -73,6 +73,15 @@ function estErreurAnnulation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: string }).name === 'AbortError'
 }
 
+/** Insère `nouveauPoint` juste avant le dernier élément de `points` (la
+ * Destination, qui reste toujours dernière -- cf. spec-2-3, "ajout après un
+ * tracé déjà posé"). Partagé par les branches aller_simple et multi_etapes
+ * de `poserPoint`, seules topologies pouvant porter une Destination. */
+function insererAvantDernier(points: PointAtelier[], nouveauPoint: PointAtelier): PointAtelier[] {
+  const dernierIndex = points.length - 1
+  return [...points.slice(0, dernierIndex), nouveauPoint, points[dernierIndex]]
+}
+
 /** Composant sans rendu : relaie les clics carte au parent via
  * `useMapEvents` (l'unique façon, avec react-leaflet, d'écouter les
  * événements d'une `MapContainer` déjà montée). */
@@ -143,13 +152,15 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // topologie (le moteur reste topologie-agnostique, cf. Design Notes) :
   // `undefined` tant que la topologie n'a pas assez de points pour calculer.
   let pointsCalcul: PointAtelier[] | undefined
-  if (depart && topologie === 'aller_simple' && destination) {
-    pointsCalcul = [depart, destination]
-  } else if (depart && topologie === 'boucle' && pointsDePassage.length > 0) {
+  if (depart && topologie === 'boucle' && pointsDePassage.length > 0) {
     // Fermeture de boucle par simple répétition du départ en fin de liste
     // (aucun itinéraire de retour "intelligent" recherché, cf. Never).
     pointsCalcul = [...points, depart]
-  } else if (depart && topologie === 'multi_etapes' && destination) {
+  } else if (depart && (topologie === 'aller_simple' || topologie === 'multi_etapes') && destination) {
+    // `points` déjà dans l'ordre Départ → Points de passage → Destination :
+    // depuis spec-2-3, un aller simple peut aussi porter des Points de
+    // passage insérés après coup, d'où l'alignement sur la même dérivation
+    // que multi_etapes (auparavant `[depart, destination]` seul).
     pointsCalcul = points
   }
 
@@ -179,25 +190,47 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       if (!topologie) {
         return precedent
       }
-      if (topologie === 'aller_simple') {
-        // Comportement 2.1 conservé : 2e point = Destination, 3e ignoré.
-        if (precedent.length === 1) {
-          return [...precedent, { id: crypto.randomUUID(), role: 'destination', lat, lon, nonRoute: false }]
-        }
-        return precedent
-      }
       if (topologie === 'boucle') {
         // Jamais de Destination en boucle ; aucun verrouillage, chaque clic
         // ajoute un Point de passage (cf. Boundaries).
         return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
       }
-      // Multi-étapes : verrouillage dès qu'une Destination est qualifiée
-      // (même règle que le 3e point de l'aller simple, cf. Design Notes).
-      const destinationDejaQualifiee = precedent.some((point) => point.role === 'destination')
-      if (destinationDejaQualifiee) {
-        return precedent
+      if (topologie === 'aller_simple') {
+        // Comportement 2.1 conservé : tant qu'aucune Destination n'existe,
+        // le point posé le devient. Vérifié par présence du rôle (pas par
+        // longueur) : une Destination supprimée via la liste (spec-2-3)
+        // laisse une topologie aller_simple sans Destination, et le clic
+        // suivant doit pouvoir en re-qualifier une plutôt que rester bloqué.
+        const destinationExistante = precedent.some((point) => point.role === 'destination')
+        if (!destinationExistante) {
+          return [...precedent, { id: crypto.randomUUID(), role: 'destination', lat, lon, nonRoute: false }]
+        }
+        // Destination déjà qualifiée : le nouveau point s'insère comme
+        // Point de passage juste avant elle (spec-2-3, "ajout après un
+        // tracé déjà posé" -- avant cette story, ce clic était ignoré).
+        return insererAvantDernier(precedent, {
+          id: crypto.randomUUID(),
+          role: 'point_de_passage',
+          lat,
+          lon,
+          nonRoute: false,
+        })
       }
-      return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+      // Multi-étapes : tant qu'aucune Destination n'est qualifiée, chaque
+      // clic ajoute un Point de passage en fin de liste ; une fois
+      // qualifiée, le nouveau point s'insère juste avant elle (même règle
+      // que l'aller simple ci-dessus, spec-2-3).
+      const destinationDejaQualifiee = precedent.some((point) => point.role === 'destination')
+      if (!destinationDejaQualifiee) {
+        return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+      }
+      return insererAvantDernier(precedent, {
+        id: crypto.randomUUID(),
+        role: 'point_de_passage',
+        lat,
+        lon,
+        nonRoute: false,
+      })
     })
   }
 
@@ -213,9 +246,92 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     })
   }
 
+  // Déplacement d'un point existant (marqueur `draggable`, cf. `dragend`
+  // sur `Marker` plus bas) : seules `lat`/`lon` changent, le reste (rôle,
+  // `nonRoute`) est laissé tel quel -- le recalcul déclenché juste après
+  // rafraîchira `nonRoute` avec la nouvelle position (cf. matrice I/O).
+  function deplacerPoint(id: string, lat: number, lon: number) {
+    setPoints((precedent) => precedent.map((point) => (point.id === id ? { ...point, lat, lon } : point)))
+  }
+
+  // Réordonnancement par boutons ↑ (`decalage: -1`) / ↓ (`decalage: +1`),
+  // jamais sur Départ ni Destination (positions fixes, cf. Boundaries) :
+  // le garde-fou porte à la fois sur le point déplacé et sur son voisin, ce
+  // qui bloque naturellement tout échange avec le Départ (index 0) ou la
+  // Destination (toujours dernière) sans connaître leur position à l'avance.
+  function reordonnerPoint(id: string, decalage: -1 | 1) {
+    setPoints((precedent) => {
+      const index = precedent.findIndex((point) => point.id === id)
+      if (index === -1) {
+        return precedent
+      }
+      const cible = precedent[index]
+      if (cible.role === 'depart' || cible.role === 'destination') {
+        return precedent
+      }
+      const nouvelIndex = index + decalage
+      if (nouvelIndex < 0 || nouvelIndex >= precedent.length) {
+        return precedent
+      }
+      const voisin = precedent[nouvelIndex]
+      if (voisin.role === 'depart' || voisin.role === 'destination') {
+        return precedent
+      }
+      const copie = [...precedent]
+      copie[index] = voisin
+      copie[nouvelIndex] = cible
+      return copie
+    })
+  }
+
+  // Suppression via la liste (cf. Boundaries) : supprimer le Départ promeut
+  // le point suivant au rôle Départ (mêmes lat/lon, cf. Design Notes) ; sans
+  // second point, retour à l'état initial complet -- équivalent à
+  // `reinitialiserPoints` (même risque de point orphelin que documenté sur
+  // cette fonction si on filtrait `depart` sans réattribuer le rôle). Toute
+  // autre ligne est simplement retirée.
+  function supprimerPoint(id: string) {
+    // Forme fonctionnelle (comme les autres mutateurs ci-dessus) : deux
+    // suppressions déclenchées avant un re-rendu ne doivent jamais lire le
+    // même `points` obsolète, sous peine que la seconde écrase le résultat
+    // de la première (un point "supprimé" réapparaîtrait silencieusement).
+    // Retour à `[]` calculé ici (jamais via une relecture de `points` après
+    // coup, qui serait tout aussi obsolète) : l'effet ci-dessous, qui réagit
+    // à `points.length`, s'occupe de réinitialiser topologie/trace/erreur en
+    // conséquence dès que ce `[]` est effectivement commité.
+    setPoints((precedent) => {
+      const cible = precedent.find((point) => point.id === id)
+      if (!cible) {
+        return precedent
+      }
+      if (cible.role === 'depart') {
+        const reste = precedent.filter((point) => point.id !== id)
+        if (reste.length === 0) {
+          return []
+        }
+        const [nouveauDepart, ...suite] = reste
+        return [{ ...nouveauDepart, role: 'depart' }, ...suite]
+      }
+      return precedent.filter((point) => point.id !== id)
+    })
+  }
+
+  // Filet de sécurité pour `supprimerPoint` (Départ supprimé sans point
+  // restant) : réagit à l'état `points` réellement commité, jamais à une
+  // fermeture capturée au moment du clic -- correct même si deux
+  // suppressions se chevauchent avant un re-rendu (cf. commentaire ci-dessus).
+  // `reinitialiserPoints` réapplique aussi `setPoints([])`, mais c'est un
+  // no-op sur un tableau déjà vide.
+  useEffect(() => {
+    if (points.length === 0) {
+      setTopologie(undefined)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [points.length])
+
   // Toujours une réinitialisation complète, jamais un filtrage partiel :
   // retirer uniquement le départ laisserait un point orphelin `destination`
-  // sans départ, et le clic suivant (branche `precedent.length === 1` de
+  // sans départ, et le clic suivant (branche `destinationExistante` de
   // `poserPoint`) le rejouerait en un second point `destination` -- deux
   // marqueurs partageant la même clé, plus aucun départ possible, et l'effet
   // de calcul auto (qui exige `depart` ET `destination`) durablement bloqué.
@@ -236,6 +352,12 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // sportif (cf. Boundaries de la spec).
   useEffect(() => {
     if (!pointsCalcul) {
+      // Une édition (suppression de la Destination, par ex.) peut rendre la
+      // topologie active incomplète sans jamais vider `points` -- le dernier
+      // tracé calculé décrirait alors des points qui n'existent plus sur la
+      // carte. Ne rien faire ici le laisserait affiché indéfiniment.
+      setTrace((precedent) => (precedent.length > 0 ? [] : precedent))
+      setErreurCalcul(undefined)
       return
     }
     const aEnvoyer = pointsCalcul
@@ -424,23 +546,52 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
               </p>
             )}
 
-            {points.length > 1 && (
+            {/* > 0, pas > 1 : le Départ seul doit rester supprimable via son
+                propre bouton (retour à l'état vide, cf. Design Notes
+                spec-2-3), pas seulement une fois un second point posé. */}
+            {points.length > 0 && (
               <ul className="atelier__points">
-                {points.map((point) => (
-                  <li key={point.id}>
-                    {libelleRole(point.role)}
-                    {peutQualifierDernierPoint && point.id === dernierPoint.id && (
-                      <span className="atelier__qualification" role="group" aria-label="Qualifier ce point">
-                        <button type="button" onClick={() => qualifierDernierPoint('etape_utilisateur')}>
-                          Étape utilisateur
-                        </button>
-                        <button type="button" onClick={() => qualifierDernierPoint('destination')}>
-                          Destination
+                {points.map((point) => {
+                  // Réordonnancement jamais sur Départ ni Destination
+                  // (positions fixes, cf. Boundaries) -- boutons ↑/↓
+                  // affichés uniquement pour les autres rôles.
+                  const peutReordonner = point.role !== 'depart' && point.role !== 'destination'
+                  return (
+                    <li key={point.id}>
+                      {libelleRole(point.role)}
+                      {peutQualifierDernierPoint && point.id === dernierPoint.id && (
+                        <span className="atelier__qualification" role="group" aria-label="Qualifier ce point">
+                          <button type="button" onClick={() => qualifierDernierPoint('etape_utilisateur')}>
+                            Étape utilisateur
+                          </button>
+                          <button type="button" onClick={() => qualifierDernierPoint('destination')}>
+                            Destination
+                          </button>
+                        </span>
+                      )}
+                      <span className="atelier__actions" role="group" aria-label="Actions sur ce point">
+                        {peutReordonner && (
+                          <>
+                            <button type="button" onClick={() => reordonnerPoint(point.id, -1)} aria-label="Monter">
+                              ↑
+                            </button>
+                            <button type="button" onClick={() => reordonnerPoint(point.id, 1)} aria-label="Descendre">
+                              ↓
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          className="atelier__actions-supprimer"
+                          onClick={() => supprimerPoint(point.id)}
+                          aria-label="Supprimer ce point"
+                        >
+                          Supprimer
                         </button>
                       </span>
-                    )}
-                  </li>
-                ))}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </div>
@@ -448,7 +599,10 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
 
         {calculEnCours && (
           <p role="status" className="atelier__statut">
-            Calcul du parcours…
+            {/* "Calcul du parcours…" réservé au tout premier calcul ; dès
+                qu'un tracé est déjà affiché, un recalcul (édition) affiche
+                "Mise à jour…" à la place (cf. Boundaries, NFR-4). */}
+            {trace.length > 0 ? 'Mise à jour…' : 'Calcul du parcours…'}
           </p>
         )}
 
@@ -489,7 +643,22 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           <EcouteurClicCarte onClic={poserPoint} />
           <RecentrageInitial centre={premierPointPose} />
           {points.map((point) => (
-            <Marker key={point.id} position={[point.lat, point.lon]} />
+            <Marker
+              key={point.id}
+              position={[point.lat, point.lon]}
+              draggable
+              eventHandlers={{
+                // Patron `Marker draggable` natif de react-leaflet (cf.
+                // Design Notes) : `dragend` porte la position finale sur
+                // `event.target` (le marqueur Leaflet lui-même), pas sur
+                // l'événement -- pas de `useState` intermédiaire, la nouvelle
+                // position est lue directement depuis l'instance.
+                dragend: (event) => {
+                  const { lat, lng } = (event.target as L.Marker).getLatLng()
+                  deplacerPoint(point.id, lat, lng)
+                },
+              }}
+            />
           ))}
           {trace.length > 0 && <Polyline positions={trace.map((point) => [point.lat, point.lon])} />}
         </MapContainer>
