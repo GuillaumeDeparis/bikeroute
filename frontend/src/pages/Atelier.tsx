@@ -5,7 +5,15 @@ import iconUrl from 'leaflet/dist/images/marker-icon.png'
 import shadowUrl from 'leaflet/dist/images/marker-shadow.png'
 import 'leaflet/dist/leaflet.css'
 import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 'react-leaflet'
-import { ApiError, calculerParcours, rechercherAdresse, type PointCoordonnee, type ResultatAdresse } from '../api/client'
+import {
+  ApiError,
+  calculerParcours,
+  rechercherAdresse,
+  type Difficulte,
+  type Metriques,
+  type PointCoordonnee,
+  type ResultatAdresse,
+} from '../api/client'
 import './Atelier.css'
 
 // Bundler (Vite) : les icônes par défaut de Leaflet pointent vers des chemins
@@ -186,6 +194,115 @@ function RecentrageRecherche({ centre }: { centre: [number, number] | null }) {
   return null
 }
 
+/** "54,2 km" -- un chiffre après la virgule, séparateur français (cf.
+ * mockups/key-atelier-manuel.html). */
+function formatDistance(distanceM: number): string {
+  return `${(distanceM / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
+}
+
+/** "830 m" -- D+/D-, arrondis au mètre le plus proche (pas de décimale : une
+ * précision centimétrique n'aurait aucun sens pour un dénivelé cyclable). */
+function formatDenivele(deniveleM: number): string {
+  return `${Math.round(deniveleM)} m`
+}
+
+/** "2 h 40" (ou "40 min" sous l'heure) -- même registre que les mockups,
+ * jamais de secondes affichées (pas assez signifiant pour une durée
+ * cyclable). */
+function formatDuree(dureeS: number): string {
+  // Plancher à 0 : défense en profondeur si le backend émettait un jour une
+  // durée négative (ne devrait jamais arriver, `duration_s` y est validé
+  // strictement positive côté Valhalla, cf. `valhalla_provider.py`) --
+  // jamais une durée négative affichée à l'écran.
+  const minutesTotales = Math.max(0, Math.round(dureeS / 60))
+  const heures = Math.floor(minutesTotales / 60)
+  const minutes = minutesTotales % 60
+  if (heures === 0) {
+    return `${minutes} min`
+  }
+  return `${heures} h ${String(minutes).padStart(2, '0')}`
+}
+
+/** `difficulte` typé `Difficulte` (4 valeurs garanties par le contrat
+ * backend, cf. `Literal` de `MetriquesResponse.difficulte`) -- le
+ * `default` ci-dessous reste un filet défensif si le backend émettait
+ * malgré tout une valeur imprévue (contrat rompu/version divergente),
+ * plutôt que de laisser passer un `undefined` silencieux à l'affichage. */
+function libelleDifficulte(difficulte: Difficulte): string {
+  switch (difficulte) {
+    case 'facile':
+      return 'Facile'
+    case 'modere':
+      return 'Modéré'
+    case 'difficile':
+      return 'Difficile'
+    case 'tres_difficile':
+      return 'Très difficile'
+    default:
+      return difficulte
+  }
+}
+
+/** Bulle de métriques extensible (compacte ↔ déployée, spec-2-5) : compacte
+ * = distance/D+/durée ; déployée ajoute D-/difficulté (cf. Boundaries de la
+ * spec). Un unique composant, jamais recalculé -- affiche tel quel ce que le
+ * backend a produit (`metriques`), sans logique métier ici. Persistante dans
+ * le panneau (déjà accessible ordinateur/mobile via le layout responsive
+ * existant, cf. Atelier.css) : ne se démonte jamais tant qu'un parcours routé
+ * existe, y compris pendant "Mise à jour…" (mêmes dernières valeurs
+ * affichées, cf. matrice I/O -- le composant ne sait rien du recalcul en
+ * cours, c'est l'appelant qui continue de lui passer les dernières
+ * métriques valides). */
+function BulleMetriques({
+  metriques,
+  depliee,
+  onBasculer,
+}: {
+  metriques: Metriques
+  depliee: boolean
+  onBasculer: () => void
+}) {
+  return (
+    <div className="atelier__metriques" role="region" aria-label="Métriques du parcours">
+      <button
+        type="button"
+        className="atelier__metriques-bascule"
+        onClick={onBasculer}
+        aria-expanded={depliee}
+      >
+        <span>Résumé du parcours</span>
+        <span aria-hidden="true">{depliee ? '▴' : '▾'}</span>
+      </button>
+      <div className="atelier__metriques-grille">
+        <div className="atelier__metrique">
+          <b>{formatDistance(metriques.distanceM)}</b>
+          <span>Distance</span>
+        </div>
+        <div className="atelier__metrique">
+          <b>{formatDenivele(metriques.denivelePositifM)}</b>
+          <span>D+</span>
+        </div>
+        <div className="atelier__metrique">
+          <b>{formatDuree(metriques.dureeS)}</b>
+          <span>Durée</span>
+        </div>
+        {depliee && (
+          <>
+            <div className="atelier__metrique">
+              <b>{formatDenivele(metriques.deniveleNegatifM)}</b>
+              <span>D-</span>
+            </div>
+            <div className="atelier__metrique">
+              <b>{libelleDifficulte(metriques.difficulte)}</b>
+              <span>Difficulté</span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 interface AtelierProps {
   onRetourAccueil: () => void
 }
@@ -198,6 +315,13 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   const [trace, setTrace] = useState<PointCoordonnee[]>([])
   const [calculEnCours, setCalculEnCours] = useState(false)
   const [erreurCalcul, setErreurCalcul] = useState<string | undefined>(undefined)
+  // Dernières métriques valides (spec-2-5) : suit exactement le même patron
+  // que `trace` -- ni effacées pendant un recalcul ("Mise à jour…" les
+  // laisse affichées), ni jamais présentes hors statut "routed" (mêmes
+  // points de mise à jour que `trace` ci-dessous, jamais un état séparé qui
+  // pourrait diverger).
+  const [metriques, setMetriques] = useState<Metriques | undefined>(undefined)
+  const [bulleMetriquesDepliee, setBulleMetriquesDepliee] = useState(false)
 
   const [recherche, setRecherche] = useState('')
   const [rechercheEnCours, setRechercheEnCours] = useState(false)
@@ -448,6 +572,11 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     setPoints([])
     setTopologie(undefined)
     setTrace([])
+    setMetriques(undefined)
+    // Un nouveau parcours repart toujours bulle repliée -- l'état déployé
+    // du précédent parcours n'a plus de sens une fois ses métriques
+    // effacées ci-dessus.
+    setBulleMetriquesDepliee(false)
     setErreurCalcul(undefined)
   }
 
@@ -530,6 +659,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       // tracé calculé décrirait alors des points qui n'existent plus sur la
       // carte. Ne rien faire ici le laisserait affiché indéfiniment.
       setTrace((precedent) => (precedent.length > 0 ? [] : precedent))
+      setMetriques(undefined)
       setErreurCalcul(undefined)
       return
     }
@@ -560,6 +690,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         // Un point non routé signale l'absence de tracé exploitable : jamais
         // de segment direct de repli affiché à sa place (cf. matrice I/O).
         setTrace(resultat.statut === 'routed' ? resultat.geometrie : [])
+        // Même garde : aucune métrique affichée hors statut "routed" (cf.
+        // matrice I/O de la spec-2-5).
+        setMetriques(resultat.statut === 'routed' ? resultat.metriques : undefined)
       } catch (error) {
         if (annule) {
           return
@@ -799,6 +932,18 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           <p role="alert" className="atelier__erreur">
             {erreurCalcul}
           </p>
+        )}
+
+        {/* Résumé persistant (AC4) : accessible tant qu'un parcours routé
+            existe, y compris pendant un recalcul ("Mise à jour…" ci-dessus
+            reste affiché en même temps, jamais de métrique effacée pendant
+            l'attente -- cf. Boundaries de la spec-2-5). */}
+        {metriques && (
+          <BulleMetriques
+            metriques={metriques}
+            depliee={bulleMetriquesDepliee}
+            onBasculer={() => setBulleMetriquesDepliee((precedent) => !precedent)}
+          />
         )}
 
         {pointsNonRoutes.length > 0 && (

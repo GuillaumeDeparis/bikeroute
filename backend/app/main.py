@@ -18,6 +18,7 @@ from .config import get_settings
 from .db import SessionLocal
 from .errors import AppError
 from .route_engine.adapters.inbound.routes_router import router as routes_router
+from .route_engine.bootstrap.elevation import shutdown_elevation_provider
 from .route_engine.bootstrap.routing import shutdown_routing_provider
 from .routers.auth import router as auth_router
 from .routers.geocode import router as geocode_router
@@ -60,9 +61,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     warm_up_dummy_hash(get_settings())
     yield
-    # Libère le client HTTP du singleton `RoutingProvider` (AD-8) construit
-    # par `bootstrap/routing.py` -- rien d'autre ne le fait.
+    # Libère le client HTTP des singletons `RoutingProvider`/`ElevationProvider`
+    # (AD-8) construits par `bootstrap/routing.py`/`bootstrap/elevation.py` --
+    # rien d'autre ne le fait.
     shutdown_routing_provider()
+    shutdown_elevation_provider()
 
 
 app = FastAPI(title="BikeRoute API", lifespan=_lifespan)

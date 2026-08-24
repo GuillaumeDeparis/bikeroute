@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from .metrics import RouteMetrics
 from .models import Coordinate, RouteResult
 
 # Statuts persistés/exposés pour un tracé. Seuls ces deux-là existent en V1
@@ -35,3 +36,7 @@ class Route:
     result: RouteResult
     statut: str
     created_at: datetime
+    # `None` pour un parcours non routé (même garde que `geometry` côté
+    # adaptateur entrant, cf. `routes_router.py`) -- jamais de métriques
+    # partielles (Boundaries de la spec-2-5).
+    metrics: RouteMetrics | None = None

@@ -115,6 +115,23 @@ class ValhallaRoutingProvider:
         except (KeyError, IndexError) as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (forme du tracé absente).") from exc
 
+        # `trip.summary.time` (secondes) : ignoré jusqu'ici, désormais lu pour
+        # `RouteResult.duration_s` (spec-2-5, calcul des métriques). Absence
+        # ou type invalide traité comme une réponse fournisseur inattendue --
+        # même sévérité que la forme du tracé ci-dessus, jamais une durée par
+        # défaut silencieuse qui fausserait la métrique persistée.
+        try:
+            temps = body["trip"]["summary"]["time"]
+            # `bool` est une sous-classe d'`int` en Python : `float(True)`
+            # vaudrait silencieusement `1.0` sans ce garde-fou explicite.
+            # Rejeté au même titre qu'une valeur négative (impossible pour
+            # une durée de trajet) -- jamais une conversion silencieuse.
+            if isinstance(temps, bool) or float(temps) < 0:
+                raise ValueError("durée du trajet invalide")
+            duration_s = float(temps)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RoutingProviderError("Réponse Valhalla inattendue (durée du trajet absente).") from exc
+
         # N points (Story 2.2 : boucle/multi-étapes) produisent N-1 legs, un
         # par segment consécutif -- ne garder que `legs[0]` tronquait le tracé
         # à son premier segment. Chaque jonction entre deux legs partage son
@@ -125,7 +142,13 @@ class ValhallaRoutingProvider:
             decoded = _decode_polyline6(shape)
             geometry.extend(decoded[1:] if index > 0 else decoded)
 
-        return RouteResult(geometry=tuple(geometry), unrouted_points=(), provider="valhalla", version=version)
+        return RouteResult(
+            geometry=tuple(geometry),
+            unrouted_points=(),
+            provider="valhalla",
+            version=version,
+            duration_s=duration_s,
+        )
 
     def _points_non_rattachables(self, points: list[Coordinate]) -> list[Coordinate]:
         payload = {

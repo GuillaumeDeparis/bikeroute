@@ -77,7 +77,9 @@ def test_route_deux_points_rattachables_decode_la_geometrie() -> None:
         if request.url.path == "/locate":
             return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
         if request.url.path == "/route":
-            return httpx.Response(200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}]}})
+            return httpx.Response(
+                200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}], "summary": {"time": 187.0}}}
+            )
         raise AssertionError(f"URL inattendue : {request.url}")
 
     provider = _provider(handler)
@@ -88,6 +90,7 @@ def test_route_deux_points_rattachables_decode_la_geometrie() -> None:
     assert result.version == "3.8.3"
     assert result.unrouted_points == ()
     assert [(c.lat, c.lon) for c in result.geometry] == [(45.0, 5.0), (45.005, 5.0), (45.005, 5.005)]
+    assert result.duration_s == 187.0
 
 
 def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
@@ -108,7 +111,12 @@ def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
         if request.url.path == "/route":
             return httpx.Response(
                 200,
-                json={"trip": {"legs": [{"shape": leg1_shape}, {"shape": leg2_shape}]}},
+                json={
+                    "trip": {
+                        "legs": [{"shape": leg1_shape}, {"shape": leg2_shape}],
+                        "summary": {"time": 340.0},
+                    }
+                },
             )
         raise AssertionError(f"URL inattendue : {request.url}")
 
@@ -117,6 +125,7 @@ def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
     result = provider.route([DEPART, waypoint, DEPART])
 
     assert [(c.lat, c.lon) for c in result.geometry] == [(45.0, 5.0), (45.001, 5.001), (45.0, 5.0)]
+    assert result.duration_s == 340.0
 
 
 def test_point_hors_reseau_est_marque_non_route_sans_appeler_route() -> None:
@@ -183,6 +192,49 @@ def test_erreur_serveur_leve_routing_provider_error() -> None:
 def test_panne_reseau_leve_routing_provider_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connexion refusée", request=request)
+
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+def test_duree_du_trajet_absente_leve_routing_provider_error() -> None:
+    """`trip.summary.time` absent (spec-2-5) : même sévérité que la forme du
+    tracé absente -- jamais une durée par défaut silencieuse."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
+        if request.url.path == "/route":
+            return httpx.Response(200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}]}})
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+@pytest.mark.parametrize("temps_invalide", [True, False, -1.0])
+def test_duree_du_trajet_booleenne_ou_negative_leve_routing_provider_error(temps_invalide: object) -> None:
+    """`bool` est une sous-classe d'`int` en Python : `float(True/False)`
+    vaudrait silencieusement `1.0`/`0.0` sans garde-fou explicite -- et une
+    durée négative n'a de toute façon aucun sens. Les deux doivent être
+    rejetés au même titre qu'une durée absente, jamais convertis en silence."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
+        if request.url.path == "/route":
+            return httpx.Response(
+                200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}], "summary": {"time": temps_invalide}}}
+            )
+        raise AssertionError(f"URL inattendue : {request.url}")
 
     provider = _provider(handler)
 

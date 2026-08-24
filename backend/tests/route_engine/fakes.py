@@ -6,7 +6,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from app.route_engine.application.ports import RoutingProviderError
+from app.route_engine.application.ports import ElevationProviderError, RoutingProviderError
+from app.route_engine.domain.metrics import RouteMetrics
 from app.route_engine.domain.models import Coordinate, RouteResult
 from app.route_engine.domain.route import Route, statut_pour
 
@@ -28,6 +29,27 @@ class FakeRoutingProvider:
         return self.result
 
 
+class FakeElevationProvider:
+    """Fournisseur d'élévation factice piloté par le test : renvoie soit les
+    altitudes préconfigurées, soit une altitude nulle pour chaque point
+    demandé (assez pour les tests d'intégration, qui ne portent pas sur les
+    valeurs de métrique elles-mêmes), soit lève `ElevationProviderError` si
+    `should_fail` est posé."""
+
+    def __init__(self, *, elevations: tuple[float, ...] | None = None, should_fail: bool = False) -> None:
+        self.elevations_result = elevations
+        self.should_fail = should_fail
+        self.calls: list[tuple[Coordinate, ...]] = []
+
+    def elevations(self, points: tuple[Coordinate, ...]) -> tuple[float, ...]:
+        self.calls.append(points)
+        if self.should_fail:
+            raise ElevationProviderError("Panne simulée du fournisseur d'élévation.")
+        if self.elevations_result is not None:
+            return self.elevations_result
+        return tuple(0.0 for _ in points)
+
+
 class InMemoryRouteRepository:
     """Dépôt factice en mémoire : suffisant pour les tests d'application,
     qui ne portent pas sur la persistance PostGIS elle-même (couverte par
@@ -36,7 +58,9 @@ class InMemoryRouteRepository:
     def __init__(self) -> None:
         self.saved: list[Route] = []
 
-    def save(self, *, account_id: uuid.UUID, points: list[Coordinate], result: RouteResult) -> Route:
+    def save(
+        self, *, account_id: uuid.UUID, points: list[Coordinate], result: RouteResult, metrics: RouteMetrics | None
+    ) -> Route:
         route = Route(
             id=uuid.uuid4(),
             account_id=account_id,
@@ -44,6 +68,7 @@ class InMemoryRouteRepository:
             result=result,
             statut=statut_pour(result),
             created_at=datetime.now(timezone.utc),
+            metrics=metrics,
         )
         self.saved.append(route)
         return route

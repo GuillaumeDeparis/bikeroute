@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from ...domain.metrics import Difficulte
+
 
 class PointEntreeRequest(BaseModel):
     lat: float = Field(ge=-90, le=90)
@@ -26,6 +28,18 @@ class PointResponse(BaseModel):
     lon: float
 
 
+class MetriquesResponse(BaseModel):
+    # Méthode de calcul unique et versionnée (NFR-9) : traçabilité de la
+    # méthode qui a produit ces valeurs, même si elle change ensuite (cf.
+    # `domain/metrics.py`).
+    version: str
+    distance_m: float
+    denivele_positif_m: float
+    denivele_negatif_m: float
+    duree_s: float
+    difficulte: Difficulte
+
+
 class ParcoursResponse(BaseModel):
     id: UUID
     statut: str
@@ -34,3 +48,7 @@ class ParcoursResponse(BaseModel):
     provider: str
     provider_version: str
     created_at: datetime
+    # `None` pour un parcours non routé -- même garde que `geometry`
+    # (`routes_router.py`) : aucune métrique affichée hors statut "routed"
+    # (Boundaries de la spec-2-5).
+    metriques: MetriquesResponse | None = None

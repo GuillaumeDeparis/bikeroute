@@ -30,6 +30,18 @@
   summary: Enrichir `SessionListItem` d'un indice d'appareil (user-agent, IP approximative) pour distinguer les sessions listées.
   evidence: Aujourd'hui un utilisateur avec plusieurs sessions actives ne peut pas savoir laquelle est laquelle avant de révoquer. À concevoir délibérément plutôt qu'en ajoutant une capture d'IP/UA par défaut, car AD-10 (minimisation des journaux) demande de ne pas collecter ce type de donnée sans raison explicite.
 
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
+  summary: Ajouter revêtements, catégories routières, montées significatives et le profil altimétrique en courbe continue à la bulle de métriques déployée (FR-40 complet).
+  evidence: Spec initiale au-dessus de la cible 900-1600 tokens (~1800-3000 estimés) — le socle (distance/D+/D-/durée/difficulté via `ElevationProvider`+skadi, résumé persistant compact/déployé) suffit à livrer NFR-9 et le gros de FR-47 ; l'extraction `/trace_attributes` (revêtements/catégories, NFR-10) et la détection de montées significatives + rendu de courbe SVG sont un second appel Valhalla et un algorithme de segmentation distincts, scindés pour rester dans un contexte d'implémentation maîtrisable. Dépend du socle (même `RouteMetrics`/bulle) livré par la spec source.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
+  summary: Lisser le profil d'élévation avant de cumuler D+/D- (`calculer_metriques`), au lieu de sommer chaque delta brut entre points consécutifs de la géométrie routée.
+  evidence: Relevé en revue (blind hunter) : les échantillons SRTM/skadi bruts sont bruités à la résolution d'une polyligne dense ; sommer chaque micro-fluctuation surestime systématiquement D+/D- par rapport à un profil lissé. Pas de seuil/méthode de lissage tranché dans la spec (aucune décision "Ask First" ne le couvrait) ; nécessite un choix délibéré (seuil de delta minimal, fenêtre de lissage) plutôt qu'un correctif isolé.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
+  summary: Dimensionner l'appel Valhalla `/height` (timeout dédié, chunking/décimation de la géométrie) pour les parcours longs ou à nombreux points, plutôt que de réutiliser tel quel le timeout du `RoutingProvider`.
+  evidence: Relevé en revue (blind hunter) : chaque calcul de parcours routé déclenche désormais deux appels Valhalla séquentiels (routage puis élévation sur la géométrie décodée complète, potentiellement dense pour une boucle/multi-étapes longue), sans stratégie de repli si `/height` devient plus lent que `/route` sur un tracé volumineux.
+
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
   summary: Ajouter un README racine documentant `docker compose up`, la migration Alembic hors Docker, et l'acceptation du certificat auto-signé du frontend en local.
   evidence: Rien ne documente ces étapes ; actuellement récupérable en lisant le code/spec, mais deviendra nécessaire dès qu'un deuxième contributeur rejoint le projet.

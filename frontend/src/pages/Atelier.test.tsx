@@ -109,6 +109,15 @@ const RESULTAT_ROUTE_DEFAUT = {
   createdAt: '2026-08-23T00:00:00Z',
 }
 
+const METRIQUES_DEFAUT = {
+  version: '1',
+  distanceM: 12345,
+  denivelePositifM: 210,
+  deniveleNegatifM: 180,
+  dureeS: 3620,
+  difficulte: 'modere' as const,
+}
+
 describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1', () => {
   it('premier point posé (clic carte) : devient le départ, le menu contextuel impose le choix de topologie', async () => {
     render(<Atelier onRetourAccueil={vi.fn()} />)
@@ -1027,6 +1036,164 @@ describe('Atelier — inversion du sens (spec-2-4)', () => {
       { lat: 45.77, lon: 4.87 },
       { lat: 45.75, lon: 4.85 },
     ])
+  })
+})
+
+describe('Atelier — bulle de métriques (spec-2-5)', () => {
+  it('parcours routé : la bulle compacte affiche distance, D+ et durée', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    expect(within(bulle).getByText('12,3 km')).toBeInTheDocument()
+    expect(within(bulle).getByText('210 m')).toBeInTheDocument()
+    expect(within(bulle).getByText('1 h 00')).toBeInTheDocument()
+    // Repliée par défaut : D- et difficulté pas encore affichés.
+    expect(within(bulle).queryByText('180 m')).not.toBeInTheDocument()
+    expect(within(bulle).queryByText('Modéré')).not.toBeInTheDocument()
+  })
+
+  it('bulle déployée : ajoute D- et difficulté', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    expect(within(bulle).getByText('180 m')).toBeInTheDocument()
+    expect(within(bulle).getByText('Modéré')).toBeInTheDocument()
+    // Toujours visibles également (compact + déployé, jamais remplacés).
+    expect(within(bulle).getByText('12,3 km')).toBeInTheDocument()
+  })
+
+  it('parcours non routé : aucune bulle de métriques affichée', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({
+      id: 'r-non-route',
+      statut: 'non_route',
+      geometrie: [],
+      pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
+      fournisseur: 'valhalla',
+      versionFournisseur: '3.8.3',
+      createdAt: '2026-08-23T00:00:00Z',
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(46.0, 6.5)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('region', { name: 'Métriques du parcours' })).not.toBeInTheDocument()
+  })
+
+  it('recalcul en cours (édition d’un point) : les dernières métriques valides restent affichées avec "Mise à jour…"', async () => {
+    const user = userEvent.setup()
+    let resoudreDeuxiemeCalcul: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+      .mockImplementationOnce(
+        () =>
+          new Promise<ResultatParcours>((resolve) => {
+            resoudreDeuxiemeCalcul = resolve
+          }),
+      )
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await screen.findByRole('region', { name: 'Métriques du parcours' })
+
+    glisserMarqueur(45.76, 4.86, 45.9, 4.95)
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Mise à jour…')
+    const bulle = screen.getByRole('region', { name: 'Métriques du parcours' })
+    expect(within(bulle).getByText('12,3 km')).toBeInTheDocument()
+
+    resoudreDeuxiemeCalcul?.({
+      ...RESULTAT_ROUTE_DEFAUT,
+      id: 'd2',
+      metriques: { ...METRIQUES_DEFAUT, distanceM: 15000 },
+    })
+
+    await waitFor(() => expect(within(screen.getByRole('region', { name: 'Métriques du parcours' })).getByText('15,0 km')).toBeInTheDocument())
+  })
+
+  it('échec du fournisseur (routage ou élévation) : les dernières métriques valides restent affichées, même erreur structurée que le routage', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+      .mockRejectedValueOnce(
+        new ApiError(502, {
+          code: 'MOTEUR_ROUTAGE_INDISPONIBLE',
+          message: 'Le moteur de routage est indisponible. Réessayez plus tard.',
+          details: {},
+          correlationId: 'abc',
+        }),
+      )
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await screen.findByRole('region', { name: 'Métriques du parcours' })
+
+    glisserMarqueur(45.76, 4.86, 45.9, 4.95)
+
+    expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Métriques du parcours' })).toBeInTheDocument()
+  })
+
+  it('nouveau parcours après une réinitialisation complète : la bulle repart toujours repliée, même si le précédent parcours était déployé', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+      .mockResolvedValueOnce({
+        id: 'r-non-route',
+        statut: 'non_route',
+        geometrie: [],
+        pointsNonRoutes: [{ lat: 46.0, lon: 6.5 }],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+    expect(within(bulle).getByText('Modéré')).toBeInTheDocument()
+
+    // Édition menant à un point non routé, puis réinitialisation complète
+    // (bouton « Supprimer » du bandeau, P4) : points/topologie/trace/
+    // métriques repartent à zéro.
+    glisserMarqueur(45.76, 4.86, 46.0, 6.5)
+    await user.click(await screen.findByRole('button', { name: 'Supprimer' }))
+    expect(screen.queryByRole('region', { name: 'Métriques du parcours' })).not.toBeInTheDocument()
+
+    // Nouveau parcours routé : la bulle réapparaît, mais compacte -- son
+    // état déployé du précédent parcours n'a pas survécu à la réinitialisation.
+    vi.mocked(calculerParcours).mockResolvedValueOnce({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    const nouvelleBulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    expect(within(nouvelleBulle).getByText('12,3 km')).toBeInTheDocument()
+    expect(within(nouvelleBulle).queryByText('Modéré')).not.toBeInTheDocument()
   })
 })
 

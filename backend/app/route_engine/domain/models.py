@@ -39,6 +39,11 @@ class RouteResult:
     unrouted_points: tuple[Coordinate, ...]
     provider: str
     version: str
+    # Durée du trajet routé, en secondes (AD-11) -- `trip.summary.time` côté
+    # Valhalla (spec-2-5). Défaut `0.0` : sans effet pour un résultat non
+    # routé (`metrics=None`, jamais utilisé), et garde les tests/doubles
+    # existants valides sans avoir à le renseigner explicitement.
+    duration_s: float = 0.0
 
     @property
     def est_route(self) -> bool:

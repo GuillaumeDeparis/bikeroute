@@ -43,4 +43,13 @@ class Route(Base):
     statut: Mapped[str] = mapped_column(String(32), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     provider_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Nul quand le tracé n'a pas pu être routé (même garde que `geometry`) --
+    # jamais de métriques partielles (Boundaries de la spec-2-5). Sérialisées
+    # telles quelles en JSONB (patron `points`), pas en colonnes dédiées : le
+    # morceau différé (revêtements, montées, ...) y ajoutera des champs, sans
+    # requête SQL structurante dessus en V1 (cf. Design Notes de la spec).
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Méthode de calcul unique et versionnée (NFR-9) : traçabilité de la
+    # méthode qui a produit `metrics`, même si elle change ensuite.
+    metrics_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)

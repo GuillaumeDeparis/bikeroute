@@ -65,6 +65,13 @@ services:
       # téléchargement/commit (cf. Ask First de la spec-2-1) si une QA locale
       # plus réaliste devient nécessaire.
       - ./deploy/valhalla/corpus.osm.pbf:/data/corpus.osm.pbf:ro
+      # Tuiles d'élévation SRTM/skadi (`/height`, spec-2-5, AD-8) : jamais
+      # commitées (répertoire gitignored, même patron que l'extrait OSM réel
+      # de QA locale, cf. `deploy/valhalla/data/.gitignore`) -- le corpus
+      # synthétique (`corpus.osm.pbf`) ne couvre aucune donnée d'élévation
+      # réelle (cf. Design Notes de la spec-2-5) ; à peupler manuellement
+      # (fichiers `.hgt.gz`, format skadi) pour une QA locale avec dénivelé.
+      - ./deploy/valhalla/data/elevation:/data/elevation:ro
     # Construit les tuiles à chaque démarrage plutôt que de les persister
     # dans un volume : le corpus est minuscule (build < 1s), et repartir à
     # chaque fois du `.pbf` committé garantit des tuiles toujours cohérentes
@@ -72,8 +79,8 @@ services:
     entrypoint: ['bash', '-c']
     command:
       - >
-        mkdir -p /data/tiles &&
-        valhalla_build_config --mjolnir-tile-dir /data/tiles --mjolnir-tile-extract /data/tiles.tar > /data/valhalla.json &&
+        mkdir -p /data/tiles /data/elevation &&
+        valhalla_build_config --mjolnir-tile-dir /data/tiles --mjolnir-tile-extract /data/tiles.tar --additional-data-elevation /data/elevation > /data/valhalla.json &&
         valhalla_build_tiles -c /data/valhalla.json /data/corpus.osm.pbf &&
         valhalla_service /data/valhalla.json 1
     ports:

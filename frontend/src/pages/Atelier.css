@@ -237,6 +237,54 @@
   font-size: 0.9rem;
 }
 
+/* Bulle de métriques (spec-2-5) : compacte (distance/D+/durée) ↔ déployée
+   (ajoute D-/difficulté) -- style inspiré de mockups/key-atelier-manuel.html
+   et key-mobile-atelier.html (partie résumé, sans courbe altimétrique). */
+.atelier__metriques {
+  padding: 0.75rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+.atelier__metriques-bascule {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #17324d;
+  cursor: pointer;
+}
+
+.atelier__metriques-grille {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.atelier__metrique {
+  background: #f2f6f4;
+  border-radius: 0.4rem;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.atelier__metrique b {
+  display: block;
+  font-size: 1rem;
+}
+
+.atelier__metrique span {
+  font-size: 0.75rem;
+  color: #5f7888;
+}
+
 .atelier__bandeau-non-route {
   padding: 0.75rem 1rem;
   border: 1px solid #e0b84a;

@@ -13,6 +13,7 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy.orm import Session as DBSession
 
 from ....models.route import Route as RouteModel
+from ...domain.metrics import RouteMetrics
 from ...domain.models import Coordinate, RouteResult
 from ...domain.route import Route, statut_pour
 
@@ -28,7 +29,9 @@ class PostgisRouteRepository:
     def __init__(self, db: DBSession) -> None:
         self._db = db
 
-    def save(self, *, account_id: uuid.UUID, points: list[Coordinate], result: RouteResult) -> Route:
+    def save(
+        self, *, account_id: uuid.UUID, points: list[Coordinate], result: RouteResult, metrics: RouteMetrics | None
+    ) -> Route:
         statut = statut_pour(result)
         # `>= 2` (jamais seulement "non vide") : un `LINESTRING` PostGIS/
         # GeoAlchemy2 exige au moins deux points -- une géométrie à un seul
@@ -37,6 +40,21 @@ class PostgisRouteRepository:
         # l'API. Cohérent avec `RouteResult.est_route` (domain/models.py).
         geometry = WKTElement(_linestring_wkt(list(result.geometry)), srid=4326) if len(result.geometry) >= 2 else None
         unrouted_indices = [index for index, point in enumerate(points) if point in result.unrouted_points]
+
+        # JSONB tel quel (patron `points` ci-dessus), pas de colonnes dédiées
+        # (cf. Design Notes de la spec-2-5) ; `None` si le parcours n'a pas
+        # été routé -- jamais de métriques partielles.
+        metrics_json = (
+            {
+                "distance_m": metrics.distance_m,
+                "denivele_positif_m": metrics.denivele_positif_m,
+                "denivele_negatif_m": metrics.denivele_negatif_m,
+                "duree_s": metrics.duree_s,
+                "difficulte": metrics.difficulte,
+            }
+            if metrics is not None
+            else None
+        )
 
         model = RouteModel(
             account_id=account_id,
@@ -48,6 +66,8 @@ class PostgisRouteRepository:
             statut=statut,
             provider=result.provider,
             provider_version=result.version,
+            metrics=metrics_json,
+            metrics_version=metrics.version if metrics is not None else None,
         )
         self._db.add(model)
         # `flush` (pas `commit`) : la transaction reste sous le contrôle de
@@ -64,4 +84,5 @@ class PostgisRouteRepository:
             result=result,
             statut=statut,
             created_at=model.created_at,
+            metrics=metrics,
         )

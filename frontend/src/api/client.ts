@@ -140,6 +140,24 @@ export interface PointCoordonnee {
   lon: number
 }
 
+/** 4 paliers de difficulté (D+ rapporté à la distance, m/km) tranchés avec
+ * l'utilisateur -- cf. Design Notes de la spec-2-5 : jamais recalculés côté
+ * client, uniquement la valeur déjà produite par le backend. */
+export type Difficulte = 'facile' | 'modere' | 'difficile' | 'tres_difficile'
+
+/** Métriques d'un parcours routé (spec-2-5) : une unique méthode serveur
+ * versionnée (`version`), jamais recalculée côté client -- même valeur sur
+ * tous les écrans (NFR-9). `undefined` sur `ResultatParcours` pour un
+ * parcours non routé (même garde que `geometrie` vide, cf. matrice I/O). */
+export interface Metriques {
+  version: string
+  distanceM: number
+  denivelePositifM: number
+  deniveleNegatifM: number
+  dureeS: number
+  difficulte: Difficulte
+}
+
 export interface ResultatParcours {
   id: string
   statut: 'routed' | 'non_route'
@@ -148,6 +166,7 @@ export interface ResultatParcours {
   fournisseur: string
   versionFournisseur: string
   createdAt: string
+  metriques?: Metriques
 }
 
 export interface OptionsRequete {
@@ -184,6 +203,14 @@ export async function calculerParcours(
       provider: string
       provider_version: string
       created_at: string
+      metriques: {
+        version: string
+        distance_m: number
+        denivele_positif_m: number
+        denivele_negatif_m: number
+        duree_s: number
+        difficulte: Difficulte
+      } | null
     }
     return {
       id: data.id,
@@ -193,6 +220,16 @@ export async function calculerParcours(
       fournisseur: data.provider,
       versionFournisseur: data.provider_version,
       createdAt: data.created_at,
+      metriques: data.metriques
+        ? {
+            version: data.metriques.version,
+            distanceM: data.metriques.distance_m,
+            denivelePositifM: data.metriques.denivele_positif_m,
+            deniveleNegatifM: data.metriques.denivele_negatif_m,
+            dureeS: data.metriques.duree_s,
+            difficulte: data.metriques.difficulte,
+          }
+        : undefined,
     }
   }
 
