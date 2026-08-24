@@ -38,6 +38,22 @@ interface PointAtelier {
   lat: number
   lon: number
   nonRoute: boolean
+  // Numéro affiché (Point de passage/Étape utilisateur uniquement) : assigné
+  // une seule fois à la création, jamais recalculé depuis la position dans
+  // `points` -- un réordonnancement (boutons ↑/↓, inversion) déplace le
+  // point, jamais son numéro, qui resterait sinon perturbant à suivre.
+  // `undefined` pour Départ/Destination (rôle déjà unique, pas besoin d'un
+  // numéro) et effacé si un point change vers l'un de ces deux rôles.
+  numero?: number
+}
+
+/** Numéro à attribuer à un nouveau Point de passage/Étape utilisateur :
+ * toujours strictement supérieur à tout numéro déjà utilisé, jamais réutilisé
+ * après une suppression (cf. `PointAtelier.numero`) -- une numérotation qui
+ * "recule" après une suppression serait tout aussi perturbante qu'une
+ * renumérotation au réordonnancement. */
+function prochainNumeroDisponible(points: PointAtelier[]): number {
+  return Math.max(0, ...points.map((point) => point.numero ?? 0)) + 1
 }
 
 function libelleRole(role: Role): string {
@@ -51,6 +67,50 @@ function libelleRole(role: Role): string {
     case 'destination':
       return 'Destination'
   }
+}
+
+// Cache module-level (pas de useMemo, plusieurs points/positions dans une
+// boucle .map()) : sans lui, `icôneNumerotee` recréait un nouvel objet
+// `L.DivIcon` à chaque rendu, ce qui poussait react-leaflet à appeler
+// `marker.setIcon(...)` sur un `Marker` `draggable` à chaque re-rendu --
+// combinaison connue pour faire planter Leaflet (`_leaflet_events` sur un
+// `obj` devenu `undefined`, cf. https://github.com/Leaflet/Leaflet/issues
+// -- l'échange d'icône réinitialise le binding interne de Draggable). Un
+// même numéro réutilise toujours la même instance, tant que l'app tourne.
+const cacheIconesNumerotees = new Map<number, L.DivIcon>()
+
+/** Icône numérotée (punaise, comme l'icône Leaflet par défaut -- pas un
+ * simple badge rond) pour un Point de passage/Étape utilisateur : Départ et
+ * Destination gardent l'icône Leaflet par défaut (un seul de chacun, déjà
+ * identifiable par son rôle) -- seuls les points de passage, potentiellement
+ * multiples, ont besoin d'un numéro pour rester distinguables sur la carte,
+ * en cohérence avec la liste. Ancrée par sa pointe (bas-centre), comme
+ * l'icône par défaut, pour rester alignée sur le point réel une fois posée. */
+function icôneNumerotee(numero: number): L.DivIcon {
+  const enCache = cacheIconesNumerotees.get(numero)
+  if (enCache) {
+    return enCache
+  }
+  const svg = `
+    <svg width="30" height="42" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 27 15 27s15-16.5 15-27C30 6.7 23.3 0 15 0z"
+        fill="#2a6f4d"
+        stroke="#fff"
+        stroke-width="1.5"
+      />
+      <circle cx="15" cy="15" r="10" fill="#fff" />
+      <text x="15" y="20" font-size="13" font-weight="700" text-anchor="middle" font-family="sans-serif" fill="#2a6f4d">${numero}</text>
+    </svg>
+  `
+  const icone = L.divIcon({
+    html: svg,
+    className: 'atelier__marqueur-icone',
+    iconSize: [30, 42],
+    iconAnchor: [15, 42],
+  })
+  cacheIconesNumerotees.set(numero, icone)
+  return icone
 }
 
 function libelleTopologie(topologie: Topologie): string {
@@ -214,7 +274,17 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       if (topologie === 'boucle') {
         // Jamais de Destination en boucle ; aucun verrouillage, chaque clic
         // ajoute un Point de passage (cf. Boundaries).
-        return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+        return [
+          ...precedent,
+          {
+            id: crypto.randomUUID(),
+            role: 'point_de_passage',
+            lat,
+            lon,
+            nonRoute: false,
+            numero: prochainNumeroDisponible(precedent),
+          },
+        ]
       }
       if (topologie === 'aller_simple') {
         // Comportement 2.1 conservé : tant qu'aucune Destination n'existe,
@@ -235,6 +305,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           lat,
           lon,
           nonRoute: false,
+          numero: prochainNumeroDisponible(precedent),
         })
       }
       // Multi-étapes : tant qu'aucune Destination n'est qualifiée, chaque
@@ -243,7 +314,17 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       // que l'aller simple ci-dessus, spec-2-3).
       const destinationDejaQualifiee = precedent.some((point) => point.role === 'destination')
       if (!destinationDejaQualifiee) {
-        return [...precedent, { id: crypto.randomUUID(), role: 'point_de_passage', lat, lon, nonRoute: false }]
+        return [
+          ...precedent,
+          {
+            id: crypto.randomUUID(),
+            role: 'point_de_passage',
+            lat,
+            lon,
+            nonRoute: false,
+            numero: prochainNumeroDisponible(precedent),
+          },
+        ]
       }
       return insererAvantDernier(precedent, {
         id: crypto.randomUUID(),
@@ -251,6 +332,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         lat,
         lon,
         nonRoute: false,
+        numero: prochainNumeroDisponible(precedent),
       })
     })
   }
@@ -263,7 +345,11 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         return precedent
       }
       const dernierIndex = precedent.length - 1
-      return precedent.map((point, index) => (index === dernierIndex ? { ...point, role } : point))
+      return precedent.map((point, index) =>
+        // Destination n'affiche jamais de numéro (rôle déjà unique) ; Étape
+        // utilisateur garde celui attribué à la création du point.
+        index === dernierIndex ? { ...point, role, numero: role === 'destination' ? undefined : point.numero } : point,
+      )
     })
   }
 
@@ -331,7 +417,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           return []
         }
         const [nouveauDepart, ...suite] = reste
-        return [{ ...nouveauDepart, role: 'depart' }, ...suite]
+        // Départ n'affiche jamais de numéro (rôle déjà unique) : effacé si
+        // le point promu en portait un (ex-Point de passage).
+        return [{ ...nouveauDepart, role: 'depart', numero: undefined }, ...suite]
       }
       return precedent.filter((point) => point.id !== id)
     })
@@ -403,11 +491,14 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         const inverse = [...precedent].reverse()
         const dernierIndex = inverse.length - 1
         return inverse.map((point, index) => {
+          // Départ/Destination n'affichent jamais de numéro -- effacement
+          // défensif (les deux extrémités n'en portent déjà jamais, mais un
+          // numéro ne doit jamais pouvoir s'afficher à côté de ces rôles).
           if (index === 0) {
-            return { ...point, role: 'depart' }
+            return { ...point, role: 'depart', numero: undefined }
           }
           if (index === dernierIndex) {
-            return { ...point, role: 'destination' }
+            return { ...point, role: 'destination', numero: undefined }
           }
           return point
         })
@@ -656,6 +747,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                   return (
                     <li key={point.id}>
                       {libelleRole(point.role)}
+                      {point.numero !== undefined && ` ${point.numero}`}
                       {peutQualifierDernierPoint && point.id === dernierPoint.id && (
                         <span className="atelier__qualification" role="group" aria-label="Qualifier ce point">
                           <button type="button" onClick={() => qualifierDernierPoint('etape_utilisateur')}>
@@ -742,8 +834,23 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           <RecentrageRecherche centre={focusRecherche} />
           {points.map((point) => (
             <Marker
-              key={point.id}
+              // `numero` inclus dans la clé (pas seulement `point.id`) :
+              // force React à démonter/remonter le marqueur plutôt que de
+              // laisser react-leaflet appeler `setIcon(...)` en place sur un
+              // `Marker` `draggable` quand le point change de rôle (numéro
+              // qui apparaît/disparaît, cf. `icôneNumerotee`) -- l'échange
+              // d'icône en place sur un marqueur déplaçable est justement ce
+              // qui plantait Leaflet.
+              key={`${point.id}:${point.numero ?? 'defaut'}`}
               position={[point.lat, point.lon]}
+              // Prop `icon` totalement omise (jamais `icon={undefined}`)
+              // quand il n'y a pas de numéro : Leaflet fusionne les options
+              // du marqueur par `for...in` (`L.Util.setOptions`), donc une
+              // valeur `undefined` explicite masque quand même l'icône par
+              // défaut héritée du prototype -- `this.options.icon` devient
+              // littéralement `undefined`, d'où le crash `createIcon` sur
+              // `undefined` pour Départ/Destination.
+              {...(point.numero !== undefined ? { icon: icôneNumerotee(point.numero) } : {})}
               draggable
               eventHandlers={{
                 // Patron `Marker draggable` natif de react-leaflet (cf.

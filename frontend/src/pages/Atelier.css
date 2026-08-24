@@ -289,6 +289,14 @@
   width: 100%;
 }
 
+/* `L.divIcon` (icône numérotée des Points de passage/Étapes utilisateur) :
+   Leaflet ne stylise pas le contenu HTML d'un divIcon, uniquement son
+   positionnement (iconSize/iconAnchor, cf. `icôneNumerotee`). */
+.atelier__marqueur-icone {
+  background: transparent;
+  border: none;
+}
+
 @media (max-width: 48rem) {
   .atelier {
     grid-template-columns: 1fr;

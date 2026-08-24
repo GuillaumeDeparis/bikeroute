@@ -26,10 +26,15 @@ vi.mock('react-leaflet', () => ({
     position,
     draggable,
     eventHandlers,
+    icon,
   }: {
     position: [number, number]
     draggable?: boolean
     eventHandlers?: { dragend?: (event: { target: { getLatLng: () => { lat: number; lng: number } } }) => void }
+    // `L.DivIcon` réel (icône numérotée, cf. `icôneNumerotee`) : seul
+    // `options.html` nous intéresse ici, pour vérifier le numéro affiché
+    // sans dépendre du rendu Leaflet réel.
+    icon?: { options: { html: string } }
   }) => {
     if (eventHandlers?.dragend) {
       gestionnairesDrag.set(`${position[0]}:${position[1]}`, eventHandlers.dragend)
@@ -40,7 +45,9 @@ vi.mock('react-leaflet', () => ({
         data-lat={position[0]}
         data-lon={position[1]}
         data-draggable={draggable ? 'true' : 'false'}
-      />
+      >
+        {icon && <span data-testid="marqueur-numero" dangerouslySetInnerHTML={{ __html: icon.options.html }} />}
+      </div>
     )
   },
   Polyline: ({ positions }: { positions: [number, number][] }) => (
@@ -332,7 +339,9 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
 
       cliquerCarte(45.76, 4.86)
 
-      expect(screen.getByText('Point de passage')).toBeInTheDocument()
+      const items = screen.getAllByRole('listitem')
+      expect(items).toHaveLength(2)
+      expect(items[1]).toHaveTextContent('Point de passage 1')
       expect(screen.queryByText('Destination')).not.toBeInTheDocument()
     })
 
@@ -1018,5 +1027,65 @@ describe('Atelier — inversion du sens (spec-2-4)', () => {
       { lat: 45.77, lon: 4.87 },
       { lat: 45.75, lon: 4.85 },
     ])
+  })
+})
+
+describe('Atelier — numérotation des points de passage', () => {
+  it('plusieurs Points de passage sont numérotés dans leur ordre, sur la carte comme dans la liste ; Départ/Destination ne le sont pas', async () => {
+    const user = userEvent.setup()
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1
+    let items = screen.getAllByRole('listitem')
+    await user.click(within(items[1]).getByRole('button', { name: 'Étape utilisateur' }))
+    cliquerCarte(45.77, 4.87) // point de passage n°2
+    items = screen.getAllByRole('listitem')
+    await user.click(within(items[2]).getByRole('button', { name: 'Destination' }))
+
+    items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    // Numérotés dans l'ordre du parcours, quel que soit leur rôle exact
+    // (Étape utilisateur ou Point de passage) -- jamais le Départ/la
+    // Destination, uniques et déjà identifiables par leur rôle seul.
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[0]).not.toHaveTextContent(/\d/)
+    expect(items[1]).toHaveTextContent('Étape utilisateur 1')
+    expect(items[2]).toHaveTextContent('Destination')
+    expect(items[2]).not.toHaveTextContent(/\d/)
+
+    const marqueurs = screen.getAllByTestId('marqueur')
+    expect(marqueurs).toHaveLength(3)
+    expect(within(marqueurs[0]).queryByTestId('marqueur-numero')).not.toBeInTheDocument() // Départ
+    expect(within(marqueurs[1]).getByTestId('marqueur-numero')).toHaveTextContent('1')
+    expect(within(marqueurs[2]).queryByTestId('marqueur-numero')).not.toBeInTheDocument() // Destination
+  })
+
+  it('réordonner deux Points de passage garde leur numéro respectif (pas un recalcul par position)', async () => {
+    const user = userEvent.setup()
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1
+    cliquerCarte(45.77, 4.87) // point de passage n°2
+
+    let items = screen.getAllByRole('listitem')
+    expect(items[1]).toHaveTextContent('Point de passage 1')
+    expect(items[2]).toHaveTextContent('Point de passage 2')
+
+    // Fait remonter le 2e point de passage au-dessus du 1er : seul l'ordre
+    // change, chaque point garde le numéro qui lui a été attribué à sa
+    // création (pas de renumérotation 1/2 par position).
+    await user.click(within(items[2]).getByRole('button', { name: 'Monter' }))
+
+    items = screen.getAllByRole('listitem')
+    expect(items[1]).toHaveTextContent('Point de passage 2')
+    expect(items[2]).toHaveTextContent('Point de passage 1')
+
+    const marqueurs = screen.getAllByTestId('marqueur')
+    expect(within(marqueurs[1]).getByTestId('marqueur-numero')).toHaveTextContent('2')
+    expect(within(marqueurs[2]).getByTestId('marqueur-numero')).toHaveTextContent('1')
   })
 })
