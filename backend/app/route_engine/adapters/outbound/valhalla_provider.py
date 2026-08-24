@@ -23,6 +23,10 @@ from ...application.ports import RoutingProviderError
 # exposé à l'utilisateur en V1, cf. Boundaries de la spec -- le profil de
 # costing par défaut de Valhalla suffit).
 _COSTING = "bicycle"
+# `bicycle_type: "road"` : profil vélo de route pour un calcul d'itinéraire
+# cohérent avec l'usage BikeRoute (`use_roads` reste au défaut Valhalla,
+# seul `bicycle_type` est fixé en V1).
+_COSTING_OPTIONS = {"bicycle": {"bicycle_type": "road"}}
 
 
 def _decode_polyline6(encoded: str) -> tuple[Coordinate, ...]:
@@ -83,6 +87,7 @@ class ValhallaRoutingProvider:
         payload = {
             "locations": [{"lat": point.lat, "lon": point.lon} for point in points],
             "costing": _COSTING,
+            "costing_options": _COSTING_OPTIONS,
         }
         try:
             response = self._client.post("/route", json=payload)
