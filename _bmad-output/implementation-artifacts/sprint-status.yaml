@@ -48,7 +48,7 @@ development_status:
   2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle: review
   2-2-choisir-et-représenter-le-type-de-parcours: review
   2-3-éditer-un-parcours-sur-la-carte: review
-  2-4-inverser-le-sens-d-un-parcours: backlog
+  2-4-inverser-le-sens-d-un-parcours: review
   2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé: backlog
   2-6-enregistrer-un-parcours-dans-sa-bibliothèque: backlog
   2-7-exporter-un-parcours-en-gpx: backlog

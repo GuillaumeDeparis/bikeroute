@@ -363,6 +363,67 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     setErreurCalcul(undefined)
   }
 
+  // Inversion du sens de parcours (spec-2-4) : Boucle et Aller simple
+  // uniquement, jamais Multi-étapes (hors scope des AC de cette story, cf.
+  // Boundaries). Forme fonctionnelle pour le contenu des points, comme les
+  // autres mutateurs ci-dessus : dérive `departActuel`/`pointsDePassageActuels`/
+  // `destinationActuelle` de `precedent`, jamais des closures `depart`/
+  // `pointsDePassage`/`destination` du corps du composant, pour rester
+  // correct même si deux inversions (ou une inversion et une autre édition)
+  // sont déclenchées avant un re-rendu -- seul le branchement par topologie
+  // lit encore `topologie` (closure), sans risque : contrairement à `points`,
+  // rien dans ce composant ne mute la topologie active en dehors d'un choix
+  // explicite de l'utilisateur ou d'un reset complet.
+  // Les `id` de chaque point sont conservés -- seuls l'ordre et, en aller
+  // simple, le rôle des deux extrémités changent (cf. Boundaries).
+  function inverserSens() {
+    setPoints((precedent) => {
+      if (topologie === 'boucle') {
+        const departActuel = precedent.find((point) => point.role === 'depart')
+        const pointsDePassageActuels = precedent.filter(
+          (point) => point.role === 'point_de_passage' || point.role === 'etape_utilisateur',
+        )
+        // Départ fixe (ferme la boucle, géré à part par `pointsCalcul`) :
+        // un `reverse()` global l'inverserait aussi, ce qui n'a pas de sens
+        // pour une boucle -- seuls les Points de passage sont inversés (cf.
+        // Design Notes).
+        if (!departActuel || pointsDePassageActuels.length === 0) {
+          return precedent
+        }
+        return [departActuel, ...pointsDePassageActuels.slice().reverse()]
+      }
+      if (topologie === 'aller_simple') {
+        const destinationActuelle = precedent.find((point) => point.role === 'destination')
+        if (!destinationActuelle) {
+          return precedent
+        }
+        // Départ et Destination échangent leurs rôles (positions), les
+        // points de passage intermédiaires sont inversés en ordre tout en
+        // conservant leur rôle (cf. Boundaries).
+        const inverse = [...precedent].reverse()
+        const dernierIndex = inverse.length - 1
+        return inverse.map((point, index) => {
+          if (index === 0) {
+            return { ...point, role: 'depart' }
+          }
+          if (index === dernierIndex) {
+            return { ...point, role: 'destination' }
+          }
+          return point
+        })
+      }
+      // Multi-étapes : hors scope des AC de cette story (cf. Boundaries) --
+      // le bouton n'est de toute façon jamais affiché pour cette topologie.
+      return precedent
+    })
+  }
+
+  // Bouton "Inverser" visible seulement Boucle (≥1 Point de passage) / Aller
+  // simple (Destination qualifiée) -- jamais Multi-étapes ni topologie
+  // incomplète (cf. matrice I/O, "Bouton absent").
+  const peutInverserSens =
+    (topologie === 'boucle' && pointsDePassage.length > 0) || (topologie === 'aller_simple' && destination !== undefined)
+
   // Signature primitive de `pointsCalcul` (jamais l'objet/tableau lui-même,
   // recréé à chaque render) : seule une valeur qui change réellement doit
   // redéclencher l'effet, comme pour `premierPointPose` ci-dessus.
@@ -571,6 +632,15 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
               <p>
                 Placez des points de passage, puis qualifiez l'un d'eux « Destination » pour déclencher le calcul.
               </p>
+            )}
+
+            {/* Boucle (≥1 Point de passage) / Aller simple (Destination
+                qualifiée) uniquement -- jamais Multi-étapes, hors scope des
+                AC de cette story (spec-2-4). */}
+            {peutInverserSens && (
+              <button type="button" className="atelier__inverser" onClick={inverserSens}>
+                Inverser
+              </button>
             )}
 
             {/* > 0, pas > 1 : le Départ seul doit rester supprimable via son

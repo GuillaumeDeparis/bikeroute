@@ -788,3 +788,235 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     await screen.findByTestId('trace')
   })
 })
+
+describe('Atelier — inversion du sens (spec-2-4)', () => {
+  it('Boucle avec 2 Points de passage : « Inverser » garde le Départ, inverse l’ordre des Points de passage, recalcule', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1
+    cliquerCarte(45.77, 4.87) // point de passage n°2
+    await screen.findByTestId('trace')
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Point de passage')
+    expect(items[2]).toHaveTextContent('Point de passage')
+    // Le Départ n'a pas bougé (toujours 45.75/4.85), seul l'ordre des deux
+    // Points de passage est inversé.
+    expect(screen.getAllByTestId('marqueur')[0]).toHaveAttribute('data-lat', '45.75')
+
+    await waitFor(() => expect(vi.mocked(calculerParcours).mock.calls.length).toBe(nombreCalculsAvant + 1))
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.75, lon: 4.85 },
+      { lat: 45.77, lon: 4.87 },
+      { lat: 45.76, lon: 4.86 },
+      { lat: 45.75, lon: 4.85 }, // fermeture de boucle par répétition du départ
+    ])
+  })
+
+  it('Aller simple sans point de passage : « Inverser » échange Départ et Destination, recalcule', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86) // destination
+    await screen.findByTestId('trace')
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Destination')
+    // Les positions ont bien été échangées : le nouveau Départ est
+    // l'ancienne Destination et inversement.
+    const marqueurs = screen.getAllByTestId('marqueur')
+    expect(marqueurs[0]).toHaveAttribute('data-lat', '45.76')
+    expect(marqueurs[1]).toHaveAttribute('data-lat', '45.75')
+
+    await waitFor(() => expect(vi.mocked(calculerParcours).mock.calls.length).toBe(nombreCalculsAvant + 1))
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.76, lon: 4.86 },
+      { lat: 45.75, lon: 4.85 },
+    ])
+  })
+
+  it('Aller simple avec un point de passage : « Inverser » inverse tout l’ordre, le Point de passage reste au milieu, recalcule', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86) // destination
+    await screen.findByTestId('trace')
+    cliquerCarte(46.0, 6.0) // point de passage inséré avant la Destination (spec-2-3)
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(3))
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(2))
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Point de passage')
+    expect(items[2]).toHaveTextContent('Destination')
+
+    await waitFor(() => expect(vi.mocked(calculerParcours).mock.calls.length).toBe(nombreCalculsAvant + 1))
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.76, lon: 4.86 }, // ex-Destination, nouveau Départ
+      { lat: 46.0, lon: 6.0 }, // Point de passage, conservé au milieu
+      { lat: 45.75, lon: 4.85 }, // ex-Départ, nouvelle Destination
+    ])
+  })
+
+  it('Bouton « Inverser » absent en Multi-étapes, ou pour une Boucle/un Aller simple incomplet', async () => {
+    const user = userEvent.setup()
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    // Boucle sans Point de passage : incomplet, pas de bouton.
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    expect(screen.queryByRole('button', { name: 'Inverser' })).not.toBeInTheDocument()
+
+    cliquerCarte(45.76, 4.86) // point de passage n°1 : la Boucle devient complète
+    expect(screen.getByRole('button', { name: 'Inverser' })).toBeInTheDocument()
+
+    // Suppression du Point de passage (seul point restant après le Départ) :
+    // la Boucle redevient incomplète, le bouton disparaît.
+    let items = screen.getAllByRole('listitem')
+    await user.click(within(items[1]).getByRole('button', { name: 'Supprimer ce point' }))
+    expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: 'Inverser' })).not.toBeInTheDocument()
+
+    // Retour à l'état vide, puis Aller simple sans Destination : incomplet.
+    items = screen.getAllByRole('listitem')
+    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    expect(screen.queryByRole('button', { name: 'Inverser' })).not.toBeInTheDocument()
+
+    // Retour à l'état vide, puis Multi-étapes avec une Destination qualifiée :
+    // hors scope de cette story, jamais de bouton même une fois complet.
+    items = screen.getAllByRole('listitem')
+    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1
+    const itemsMultiEtapes = screen.getAllByRole('listitem')
+    await user.click(within(itemsMultiEtapes[1]).getByRole('button', { name: 'Destination' }))
+    expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('Destination')
+    expect(screen.queryByRole('button', { name: 'Inverser' })).not.toBeInTheDocument()
+  })
+
+  it('inversion (Boucle) : le statut affiche "Mise à jour…" pendant le recalcul, le tracé précédent reste affiché', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1 -- déclenche déjà un calcul
+    cliquerCarte(45.77, 4.87) // point de passage n°2 -- et un second
+    await screen.findByTestId('trace')
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(2))
+
+    // Seul le calcul déclenché par "Inverser" (pas ceux de la pose des
+    // points ci-dessus) doit rester en attente pour observer le statut.
+    let resoudreCalculInversion: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(calculerParcours).mockImplementationOnce(
+      () =>
+        new Promise<ResultatParcours>((resolve) => {
+          resoudreCalculInversion = resolve
+        }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    // Comme pour toute autre édition (spec-2-3) : jamais "Calcul du
+    // parcours…" (réservé au tout premier calcul) une fois un tracé déjà
+    // affiché, et le tracé précédent ne disparaît jamais pendant le recalcul.
+    expect(screen.getByTestId('trace')).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('Mise à jour…')
+
+    resoudreCalculInversion?.(RESULTAT_ROUTE_DEFAUT)
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+  })
+
+  it('Aller simple avec deux points de passage : « Inverser » inverse tout l’ordre, les deux Points de passage aussi', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86) // destination
+    await screen.findByTestId('trace')
+    cliquerCarte(46.0, 6.0) // point de passage n°1, inséré avant la Destination
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(3))
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(2))
+    cliquerCarte(46.5, 6.5) // point de passage n°2, inséré avant la Destination
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(4))
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(3))
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(4)
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Point de passage')
+    expect(items[2]).toHaveTextContent('Point de passage')
+    expect(items[3]).toHaveTextContent('Destination')
+
+    // L'ordre complet est inversé, pas seulement les deux extrémités : les
+    // deux Points de passage intermédiaires échangent aussi leur position.
+    await waitFor(() => expect(vi.mocked(calculerParcours).mock.calls.length).toBe(nombreCalculsAvant + 1))
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.76, lon: 4.86 }, // ex-Destination, nouveau Départ
+      { lat: 46.5, lon: 6.5 }, // ex-2e point de passage, maintenant 1er
+      { lat: 46.0, lon: 6.0 }, // ex-1er point de passage, maintenant 2e
+      { lat: 45.75, lon: 4.85 }, // ex-Départ, nouvelle Destination
+    ])
+  })
+
+  it('inversion appliquée deux fois (Boucle) : revient à l’ordre initial', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85) // départ
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    cliquerCarte(45.76, 4.86) // point de passage n°1
+    cliquerCarte(45.77, 4.87) // point de passage n°2
+    await screen.findByTestId('trace')
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(nombreCalculsAvant + 1))
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(nombreCalculsAvant + 2))
+
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.75, lon: 4.85 },
+      { lat: 45.76, lon: 4.86 },
+      { lat: 45.77, lon: 4.87 },
+      { lat: 45.75, lon: 4.85 },
+    ])
+  })
+})

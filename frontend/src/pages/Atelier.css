@@ -142,6 +142,23 @@
   color: #fff;
 }
 
+.atelier__inverser {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid #2a6f4d;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #2a6f4d;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.atelier__inverser:hover,
+.atelier__inverser:focus-visible {
+  background: #2a6f4d;
+  color: #fff;
+}
+
 .atelier__points {
   list-style: none;
   margin: 0.75rem 0 0;
