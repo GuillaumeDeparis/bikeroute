@@ -1,0 +1,3 @@
+# Override Docker Compose local (extrait OSM réel pour la QA manuelle,
+# cf. deploy/valhalla/data/.gitignore) : jamais partagé avec l'équipe.
+docker-compose.override.yml

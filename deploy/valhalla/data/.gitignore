@@ -1,0 +1,5 @@
+# Extraits OSM réels téléchargés localement pour la QA manuelle (cf. "Ask
+# First" de spec-2-1) : jamais commités, contrairement au corpus synthétique
+# déterministe (corpus.osm.xml/.pbf, un dossier plus haut).
+*
+!.gitignore
