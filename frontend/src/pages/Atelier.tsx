@@ -94,10 +94,28 @@ function EcouteurClicCarte({ onClic }: { onClic: (lat: number, lon: number) => v
   return null
 }
 
-/** Recentre la carte quand un nouveau point est posé, sans forcer de zoom
- * une fois que l'utilisateur a déjà pu ajuster la vue (uniquement au premier
- * point, pour ne pas lui arracher la carte des mains ensuite). */
+/** Recentre la carte quand le premier point est posé, sans jamais changer le
+ * niveau de zoom : l'utilisateur a pu zoomer précisément avant de cliquer,
+ * et se retrouver dézoomé de force juste après serait contre-productif. */
 function RecentrageInitial({ centre }: { centre: [number, number] | null }) {
+  const map = useMap()
+  useEffect(() => {
+    if (centre) {
+      map.setView(centre, map.getZoom())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centre])
+  return null
+}
+
+/** Recentre la carte sur un lieu choisi via la recherche (spec-2-1 UX-DR17),
+ * sans jamais poser de point : contrairement au clic carte, la recherche ne
+ * fait que "focaliser" -- c'est à l'utilisateur de cliquer ensuite pour
+ * positionner le point à l'endroit exact qu'il souhaite. Zoom fixe (pas de
+ * préservation comme `RecentrageInitial`) : une recherche peut amener sur un
+ * lieu sans rapport avec la vue actuelle, contrairement à un point déjà
+ * regardé de près avant d'être posé. */
+function RecentrageRecherche({ centre }: { centre: [number, number] | null }) {
   const map = useMap()
   useEffect(() => {
     if (centre) {
@@ -125,6 +143,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   const [rechercheEnCours, setRechercheEnCours] = useState(false)
   const [erreurRecherche, setErreurRecherche] = useState<string | undefined>(undefined)
   const [resultatsRecherche, setResultatsRecherche] = useState<ResultatAdresse[] | undefined>(undefined)
+  // Lieu choisi via la recherche, à focaliser sur la carte (jamais posé
+  // automatiquement en point, cf. `choisirResultatRecherche`).
+  const [focusRecherche, setFocusRecherche] = useState<[number, number] | null>(null)
   // Réf (pas de state) : sert uniquement à annuler une requête déjà en vol,
   // jamais lue pour du rendu.
   const rechercheControleurRef = useRef<AbortController | null>(null)
@@ -452,9 +473,15 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     }
   }
 
+  // Recherche = focaliser la carte sur le lieu trouvé, jamais poser un point
+  // à sa place (UX-DR17) : à l'utilisateur de cliquer ensuite pour placer le
+  // point exactement où il le souhaite, la recherche n'étant qu'un moyen de
+  // s'y rendre rapidement.
   function choisirResultatRecherche(resultat: ResultatAdresse) {
-    poserPoint(resultat.lat, resultat.lon)
+    setErreurRecherche(undefined)
+    setResultatsRecherche(undefined)
     setRecherche('')
+    setFocusRecherche([resultat.lat, resultat.lon])
   }
 
   const pointsNonRoutes = points.filter((point) => point.nonRoute)
@@ -642,6 +669,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
           />
           <EcouteurClicCarte onClic={poserPoint} />
           <RecentrageInitial centre={premierPointPose} />
+          <RecentrageRecherche centre={focusRecherche} />
           {points.map((point) => (
             <Marker
               key={point.id}

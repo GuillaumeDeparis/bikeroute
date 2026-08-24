@@ -46,7 +46,7 @@ vi.mock('react-leaflet', () => ({
   Polyline: ({ positions }: { positions: [number, number][] }) => (
     <div data-testid="trace" data-points={JSON.stringify(positions)} />
   ),
-  useMap: () => ({ setView: vi.fn() }),
+  useMap: () => ({ setView: vi.fn(), getZoom: () => 13 }),
   useMapEvents: (handlers: { click?: (event: { latlng: { lat: number; lng: number } }) => void }) => {
     dernierGestionnaireClic = handlers.click
     return { setView: vi.fn() }
@@ -117,7 +117,7 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
     expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
   })
 
-  it('premier point posé (recherche) : devient aussi le départ, menu de choix de topologie affiché', async () => {
+  it('résultat de recherche choisi : focalise la carte sans poser de point (UX-DR17)', async () => {
     const user = userEvent.setup()
     vi.mocked(rechercherAdresse).mockResolvedValue([{ label: 'Lyon, France', lat: 45.75, lon: 4.85 }])
 
@@ -126,7 +126,17 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
     await user.click(screen.getByRole('button', { name: 'Rechercher' }))
     await user.click(await screen.findByRole('button', { name: 'Lyon, France' }))
 
-    expect(screen.getByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
+    // Aucun point posé, aucun menu de topologie -- seule la carte se
+    // recentre (non observable via le mock `useMap`, cf. commentaire du
+    // mock). Le champ et les résultats se referment tout de même.
+    expect(screen.queryByRole('region', { name: 'Choix de la topologie' })).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+    expect(screen.getByLabelText('Rechercher une adresse')).toHaveValue('')
+    expect(screen.queryByRole('button', { name: 'Lyon, France' })).not.toBeInTheDocument()
+
+    // Il reste à l'utilisateur de cliquer sur la carte pour poser le départ.
+    cliquerCarte(45.75, 4.85)
+    expect(await screen.findByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
     expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
   })
 
