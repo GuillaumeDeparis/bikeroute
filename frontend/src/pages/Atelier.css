@@ -285,6 +285,80 @@
   color: #5f7888;
 }
 
+/* Complément spec-2-5 : revêtements/catégories routières/montées
+   significatives (listes) et courbe altimétrique (SVG), affichés uniquement
+   bulle déployée -- même conteneur que la grille compacte/déployée
+   ci-dessus. */
+.atelier__metriques-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid #eee;
+}
+
+.atelier__section-titre {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: #17324d;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.atelier__attributs-voie ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.atelier__attributs-voie li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0.4rem;
+  background: #f2f6f4;
+  border-radius: 0.3rem;
+}
+
+/* Masqué visuellement, exploitable par un lecteur d'écran (patron standard
+   "sr-only") -- équivalent textuel de la courbe altimétrique décorative
+   (revue post-implémentation, spec-2-5) : jamais `display:none`/
+   `visibility:hidden`, qui retireraient le texte de l'arbre d'accessibilité. */
+.atelier__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.atelier__profil-courbe {
+  display: block;
+  width: 100%;
+  height: 4rem;
+  margin-top: 0.35rem;
+}
+
+/* Ligne continue point-à-point (jamais par paliers, cf. Boundaries de la
+   spec-2-5) -- patron `mockups/key-atelier-manuel.html` (`.elevation path`). */
+.atelier__profil-courbe path {
+  fill: none;
+  stroke: #f05a28;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .atelier__bandeau-non-route {
   padding: 0.75rem 1rem;
   border: 1px solid #e0b84a;

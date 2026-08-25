@@ -51,6 +51,19 @@ class PostgisRouteRepository:
                 "denivele_negatif_m": metrics.denivele_negatif_m,
                 "duree_s": metrics.duree_s,
                 "difficulte": metrics.difficulte,
+                "revetements": metrics.revetements,
+                "categories_routieres": metrics.categories_routieres,
+                "profil": [
+                    {"distance_m": point.distance_m, "elevation_m": point.elevation_m} for point in metrics.profil
+                ],
+                "montees_significatives": [
+                    {
+                        "distance_m": montee.distance_m,
+                        "denivele_m": montee.denivele_m,
+                        "pente_moyenne": montee.pente_moyenne,
+                    }
+                    for montee in metrics.montees_significatives
+                ],
             }
             if metrics is not None
             else None

@@ -75,6 +75,19 @@ def test_calcul_reussi_persiste_et_renvoie_le_trace(client: TestClient, db_sessi
     assert body["metriques"]["distance_m"] > 0
     assert body["metriques"]["difficulte"]
     assert body["metriques"]["version"]
+    # Complément spec-2-5 : revêtements/catégories routières ("inconnu"
+    # toujours présent, NFR-10 -- `FakeRoutingProvider` ne fournit aucun
+    # `surface_segments`/`road_class_segments`), profil point-à-point et
+    # montées significatives exposés par la même méthode versionnée.
+    assert body["metriques"]["revetements"] == {"inconnu": 0.0}
+    assert body["metriques"]["categories_routieres"] == {"inconnu": 0.0}
+    assert len(body["metriques"]["profil"]) == 2
+    assert body["metriques"]["profil"][0] == {"distance_m": 0.0, "elevation_m": 100.0}
+    assert body["metriques"]["profil"][1]["elevation_m"] == 140.0
+    # 40 m de D+ sur ~680 m (> seuil de 500 m à >= 3 % de pente moyenne) :
+    # qualifie comme montée significative (cf. matrice I/O de la spec-2-5).
+    assert len(body["metriques"]["montees_significatives"]) == 1
+    assert body["metriques"]["montees_significatives"][0]["denivele_m"] == pytest.approx(40.0)
 
     rows = list(db_session.execute(select(RouteModel)).scalars())
     assert len(rows) == 1
@@ -84,6 +97,7 @@ def test_calcul_reussi_persiste_et_renvoie_le_trace(client: TestClient, db_sessi
     # -- même garde que `geometry` ci-dessus.
     assert rows[0].metrics is not None
     assert rows[0].metrics["denivele_positif_m"] == pytest.approx(40.0)
+    assert rows[0].metrics["revetements"] == {"inconnu": 0.0}
     assert rows[0].metrics_version == body["metriques"]["version"]
 
 

@@ -51,7 +51,13 @@ def calculer_parcours(
     if result.est_route:
         elevations = elevation_provider.elevations(result.geometry)
         try:
-            metrics = calculer_metriques(result.geometry, elevations, result.duration_s)
+            metrics = calculer_metriques(
+                result.geometry,
+                elevations,
+                result.duration_s,
+                surface_segments=result.surface_segments,
+                road_class_segments=result.road_class_segments,
+            )
         except ValueError as exc:
             # `calculer_metriques` exige `elevations`/`geometry` de même
             # longueur (contrat `ElevationProvider`, AD-8) -- aujourd'hui

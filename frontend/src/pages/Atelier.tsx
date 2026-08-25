@@ -12,6 +12,7 @@ import {
   type Difficulte,
   type Metriques,
   type PointCoordonnee,
+  type PointProfil,
   type ResultatAdresse,
 } from '../api/client'
 import './Atelier.css'
@@ -243,11 +244,93 @@ function libelleDifficulte(difficulte: Difficulte): string {
   }
 }
 
+/** "42 %" -- proportion (0..1) de revêtement/catégorie routière, arrondie au
+ * pourcent le plus proche (pas de décimale, cf. registre de `formatDenivele`). */
+function formatPourcentage(proportion: number): string {
+  return `${Math.round(proportion * 100)} %`
+}
+
+/** "4,2 %" -- pente moyenne d'une montée significative, déjà en pourcentage
+ * côté backend (`MonteeSignificative.penteMoyenne`), jamais recalculée ici. */
+function formatPente(penteMoyenne: number): string {
+  return `${penteMoyenne.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`
+}
+
+/** Valeur brute backend (tag OSM/Valhalla, ex. `"paved"`, `"residential"`,
+ * `"inconnu"`) -> libellé affichable : première lettre capitalisée,
+ * soulignés remplacés par des espaces. Aucune traduction dédiée par valeur
+ * (liste ouverte, dépend de Valhalla/OSM) -- un affichage brut mais lisible
+ * reste préférable à une table de correspondance forcément incomplète. */
+function libelleCle(cle: string): string {
+  const lisible = cle.replace(/_/g, ' ')
+  return lisible.charAt(0).toUpperCase() + lisible.slice(1)
+}
+
+/** Liste triée par proportion décroissante -- "inconnu" toujours présent
+ * dans `proportions` (NFR-10, cf. backend `domain/metrics.py`), affiché à sa
+ * place dans le tri comme n'importe quelle autre valeur, jamais mis en avant
+ * ni caché. */
+function trierProportions(proportions: Record<string, number>): [string, number][] {
+  return Object.entries(proportions).sort(([, a], [, b]) => b - a)
+}
+
+/** Construit l'attribut `d` d'un `<path>` SVG reliant chaque point du profil
+ * par un segment de droite (`M`/`L`) -- une ligne continue point-à-point sur
+ * la géométrie routée réelle, jamais un binning par paliers (cf. Boundaries
+ * de la spec-2-5 : "Never" -- courbe par paliers/binned). `largeur`/`hauteur`
+ * définissent le repère du `viewBox` (cf. `atelier__profil-courbe` en CSS,
+ * `preserveAspectRatio="none"` -- la mise à l'échelle réelle est laissée au
+ * SVG, ce chemin reste exprimé dans un repère fixe). */
+function construireCourbeAltimetrique(profil: PointProfil[], largeur: number, hauteur: number): string {
+  if (profil.length === 0) {
+    return ''
+  }
+  const distanceMaxM = profil[profil.length - 1].distanceM
+  const elevations = profil.map((point) => point.elevationM)
+  const elevationMinM = Math.min(...elevations)
+  const elevationMaxM = Math.max(...elevations)
+  const amplitudeM = elevationMaxM - elevationMinM
+
+  function x(distanceM: number): number {
+    return distanceMaxM > 0 ? (distanceM / distanceMaxM) * largeur : 0
+  }
+  // Élévation la plus basse en bas (`hauteur`), la plus haute en haut (`0`)
+  // -- axe SVG inversé par rapport à l'axe cartésien habituel. Amplitude
+  // nulle (parcours parfaitement plat) : ligne médiane, jamais de division
+  // par zéro.
+  function y(elevationM: number): number {
+    if (amplitudeM <= 0) {
+      return hauteur / 2
+    }
+    return hauteur - ((elevationM - elevationMinM) / amplitudeM) * hauteur
+  }
+
+  return profil
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.distanceM).toFixed(1)} ${y(point.elevationM).toFixed(1)}`)
+    .join(' ')
+}
+
+/** Résumé textuel du profil pour lecteur d'écran (revue post-implémentation,
+ * spec-2-5) : la courbe SVG ci-dessous est décorative (`aria-hidden`) --
+ * contrairement aux listes texte adjacentes (revêtements/montées), elle ne
+ * transmet aucune donnée par elle-même à un lecteur d'écran. Le D+ total
+ * réutilise `metriques.denivelePositifM` (jamais recalculé ici, cf.
+ * Boundaries) ; seules les altitudes min/max, dérivées pour l'affichage,
+ * sont calculées ici. */
+function resumeProfilPourLecteurEcran(profil: PointProfil[], denivelePositifM: number): string {
+  const elevations = profil.map((point) => point.elevationM)
+  const min = Math.round(Math.min(...elevations))
+  const max = Math.round(Math.max(...elevations))
+  return `Altitude minimale ${min} m, altitude maximale ${max} m, dénivelé positif total ${formatDenivele(denivelePositifM)}.`
+}
+
 /** Bulle de métriques extensible (compacte ↔ déployée, spec-2-5) : compacte
- * = distance/D+/durée ; déployée ajoute D-/difficulté (cf. Boundaries de la
- * spec). Un unique composant, jamais recalculé -- affiche tel quel ce que le
- * backend a produit (`metriques`), sans logique métier ici. Persistante dans
- * le panneau (déjà accessible ordinateur/mobile via le layout responsive
+ * = distance/D+/durée ; déployée ajoute D-/difficulté, puis (complément
+ * spec-2-5) revêtements/catégories routières, montées significatives et la
+ * courbe altimétrique continue (cf. Boundaries des deux specs). Un unique
+ * composant, jamais recalculé -- affiche tel quel ce que le backend a
+ * produit (`metriques`), sans logique métier ici. Persistante dans le
+ * panneau (déjà accessible ordinateur/mobile via le layout responsive
  * existant, cf. Atelier.css) : ne se démonte jamais tant qu'un parcours routé
  * existe, y compris pendant "Mise à jour…" (mêmes dernières valeurs
  * affichées, cf. matrice I/O -- le composant ne sait rien du recalcul en
@@ -299,6 +382,74 @@ function BulleMetriques({
           </>
         )}
       </div>
+
+      {depliee && (
+        <div className="atelier__metriques-detail">
+          <div className="atelier__attributs-voie" role="group" aria-label="Revêtements">
+            <p className="atelier__section-titre">Revêtements</p>
+            <ul>
+              {trierProportions(metriques.revetements).map(([cle, proportion]) => (
+                <li key={cle}>
+                  <span>{libelleCle(cle)}</span>
+                  <span>{formatPourcentage(proportion)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="atelier__attributs-voie" role="group" aria-label="Catégories routières">
+            <p className="atelier__section-titre">Catégories routières</p>
+            <ul>
+              {trierProportions(metriques.categoriesRoutieres).map(([cle, proportion]) => (
+                <li key={cle}>
+                  <span>{libelleCle(cle)}</span>
+                  <span>{formatPourcentage(proportion)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Absente sans erreur sur un parcours plat -- jamais une liste
+              vide affichée (cf. matrice I/O). */}
+          {metriques.monteesSignificatives.length > 0 && (
+            <div className="atelier__attributs-voie" role="group" aria-label="Montées significatives">
+              <p className="atelier__section-titre">Montées significatives</p>
+              <ul>
+                {metriques.monteesSignificatives.map((montee, index) => (
+                  <li key={index}>
+                    {formatDistance(montee.distanceM)} · {formatDenivele(montee.deniveleM)} ·{' '}
+                    {formatPente(montee.penteMoyenne)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* `>= 2` (pas seulement "non vide") : un profil à un seul point
+              ne produit qu'une commande `M` sans `L` -- un chemin SVG
+              invisible (revue post-implémentation). */}
+          {metriques.profil.length >= 2 && (
+            <div className="atelier__profil" role="group" aria-label="Profil altimétrique">
+              <p className="atelier__section-titre">Profil altimétrique</p>
+              {/* Équivalent textuel exploitable par un lecteur d'écran (la
+                  courbe SVG ci-dessous est purement décorative, `aria-
+                  hidden`) -- même exigence que les listes texte adjacentes. */}
+              <span className="atelier__sr-only">
+                {resumeProfilPourLecteurEcran(metriques.profil, metriques.denivelePositifM)}
+              </span>
+              <svg
+                className="atelier__profil-courbe"
+                viewBox="0 0 600 64"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+                data-testid="atelier-profil-svg"
+              >
+                <path d={construireCourbeAltimetrique(metriques.profil, 600, 64)} />
+              </svg>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

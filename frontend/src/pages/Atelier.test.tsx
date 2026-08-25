@@ -110,12 +110,20 @@ const RESULTAT_ROUTE_DEFAUT = {
 }
 
 const METRIQUES_DEFAUT = {
-  version: '1',
+  version: '2',
   distanceM: 12345,
   denivelePositifM: 210,
   deniveleNegatifM: 180,
   dureeS: 3620,
   difficulte: 'modere' as const,
+  revetements: { asphalte: 0.94, inconnu: 0.06 },
+  categoriesRoutieres: { residential: 0.6, cycleway: 0.4, inconnu: 0 },
+  profil: [
+    { distanceM: 0, elevationM: 100 },
+    { distanceM: 6000, elevationM: 250 },
+    { distanceM: 12345, elevationM: 180 },
+  ],
+  monteesSignificatives: [{ distanceM: 800, deniveleM: 60, penteMoyenne: 7.5 }],
 }
 
 describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1', () => {
@@ -1074,6 +1082,125 @@ describe('Atelier — bulle de métriques (spec-2-5)', () => {
     expect(within(bulle).getByText('Modéré')).toBeInTheDocument()
     // Toujours visibles également (compact + déployé, jamais remplacés).
     expect(within(bulle).getByText('12,3 km')).toBeInTheDocument()
+  })
+
+  it('bulle déployée : revêtement partiellement inconnu affiché explicitement, jamais replié dans une valeur favorable', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    const revetements = within(bulle).getByRole('group', { name: 'Revêtements' })
+    expect(within(revetements).getByText('Asphalte')).toBeInTheDocument()
+    expect(within(revetements).getByText('94 %')).toBeInTheDocument()
+    expect(within(revetements).getByText('Inconnu')).toBeInTheDocument()
+    expect(within(revetements).getByText('6 %')).toBeInTheDocument()
+
+    const categories = within(bulle).getByRole('group', { name: 'Catégories routières' })
+    expect(within(categories).getByText('Residential')).toBeInTheDocument()
+    expect(within(categories).getByText('Cycleway')).toBeInTheDocument()
+  })
+
+  it('bulle déployée : une montée significative affiche distance/dénivelé/pente', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    const montees = within(bulle).getByRole('group', { name: 'Montées significatives' })
+    expect(within(montees).getByText(/0,8 km/)).toBeInTheDocument()
+    expect(within(montees).getByText(/60 m/)).toBeInTheDocument()
+    expect(within(montees).getByText(/7,5 %/)).toBeInTheDocument()
+  })
+
+  it('bulle déployée : parcours plat (aucune montée significative) -> section absente, sans erreur', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({
+      ...RESULTAT_ROUTE_DEFAUT,
+      metriques: { ...METRIQUES_DEFAUT, monteesSignificatives: [] },
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    expect(within(bulle).queryByRole('group', { name: 'Montées significatives' })).not.toBeInTheDocument()
+    // Le reste du détail reste affiché normalement, sans erreur.
+    expect(within(bulle).getByRole('group', { name: 'Revêtements' })).toBeInTheDocument()
+  })
+
+  it('bulle déployée : la courbe altimétrique est une ligne SVG continue point-à-point, jamais par paliers', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    const courbe = within(bulle).getByTestId('atelier-profil-svg')
+    const chemin = courbe.querySelector('path')
+    expect(chemin).not.toBeNull()
+    // Une commande `M` (départ) suivie d'autant de `L` (segments de droite)
+    // que de points restants dans `profil` -- jamais de paliers/barres.
+    const commandes = chemin?.getAttribute('d')?.match(/[ML]/g) ?? []
+    expect(commandes).toEqual(['M', 'L', 'L'])
+  })
+
+  it('bulle déployée : la courbe altimétrique est décorative, un texte masqué visuellement porte les données pour un lecteur d’écran', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, metriques: METRIQUES_DEFAUT })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    // SVG purement décoratif, ignoré par les technologies d'assistance.
+    expect(within(bulle).getByTestId('atelier-profil-svg')).toHaveAttribute('aria-hidden', 'true')
+    // Le résumé textuel porte les données que la courbe seule ne transmet
+    // pas : altitude min/max (profil de `METRIQUES_DEFAUT` : 100/250 m) et
+    // D+ total (210 m, jamais recalculé ici -- même valeur que la grille
+    // compacte/déployée).
+    const resume = within(bulle).getByText(/Altitude minimale 100 m, altitude maximale 250 m/)
+    expect(resume).toHaveTextContent('dénivelé positif total 210 m')
+  })
+
+  it('profil à un seul point : la section profil altimétrique (courbe + résumé) reste absente, jamais un chemin SVG invisible', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({
+      ...RESULTAT_ROUTE_DEFAUT,
+      metriques: { ...METRIQUES_DEFAUT, profil: [{ distanceM: 0, elevationM: 120 }] },
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    await user.click(within(bulle).getByRole('button', { name: /Résumé du parcours/ }))
+
+    expect(within(bulle).queryByRole('group', { name: 'Profil altimétrique' })).not.toBeInTheDocument()
+    expect(within(bulle).queryByTestId('atelier-profil-svg')).not.toBeInTheDocument()
+    // Le reste du détail reste affiché normalement, sans erreur.
+    expect(within(bulle).getByRole('group', { name: 'Revêtements' })).toBeInTheDocument()
   })
 
   it('parcours non routé : aucune bulle de métriques affichée', async () => {

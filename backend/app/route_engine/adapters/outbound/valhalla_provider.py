@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import httpx
 
-from ...domain.models import Coordinate, RouteResult
+from ...domain.models import Coordinate, RouteResult, SegmentAttribut
 from ...application.ports import RoutingProviderError
 
 # "bicycle" : seul profil pertinent pour BikeRoute (aucun paramètre sportif
@@ -61,6 +61,18 @@ def _decode_polyline6(encoded: str) -> tuple[Coordinate, ...]:
         # crash -- même contrat que les autres échecs de ce module.
         raise RoutingProviderError("Forme du tracé invalide.") from exc
     return tuple(coords)
+
+
+def _valeur_ou_inconnue(edge: dict, cle: str) -> str:
+    """Lit `edge[cle]` (`surface`/`road_class`) -- `"inconnu"` si la clé est
+    absente, porte une valeur vide/`null`, ou ne contient que des espaces une
+    fois nettoyée (NFR-10) : jamais repliée silencieusement dans une valeur
+    favorable, et jamais un libellé errant fait uniquement d'espaces."""
+    valeur = edge.get(cle)
+    if valeur is None:
+        return "inconnu"
+    valeur_nettoyee = str(valeur).strip()
+    return valeur_nettoyee if valeur_nettoyee else "inconnu"
 
 
 class ValhallaRoutingProvider:
@@ -142,13 +154,79 @@ class ValhallaRoutingProvider:
             decoded = _decode_polyline6(shape)
             geometry.extend(decoded[1:] if index > 0 else decoded)
 
+        surface_segments, road_class_segments = self._attributs_voie(tuple(geometry))
+
         return RouteResult(
             geometry=tuple(geometry),
             unrouted_points=(),
             provider="valhalla",
             version=version,
             duration_s=duration_s,
+            surface_segments=surface_segments,
+            road_class_segments=road_class_segments,
         )
+
+    def _attributs_voie(
+        self, geometry: tuple[Coordinate, ...]
+    ) -> tuple[tuple[SegmentAttribut, ...], tuple[SegmentAttribut, ...]]:
+        """Second appel Valhalla (`/trace_attributes`, spec-2-5/NFR-10) sur le
+        tracé déjà routé et décodé -- `shape_match: "map_snap"` : le tracé est
+        déjà reconnu (issu de `/route` ci-dessus), pas une trace GPS bruitée
+        (Design Notes de la spec). Même sévérité d'erreur que `/route`/
+        `/locate` (`RoutingProviderError`, même 502 côté API, pas de métriques
+        partielles) -- aucun statut n'est traité comme un résultat "partiel"
+        ici, contrairement à `/route`."""
+        payload = {
+            "shape": [{"lat": point.lat, "lon": point.lon} for point in geometry],
+            "shape_match": "map_snap",
+            "costing": _COSTING,
+            "costing_options": _COSTING_OPTIONS,
+        }
+        try:
+            response = self._client.post("/trace_attributes", json=payload)
+        except httpx.HTTPError as exc:
+            raise RoutingProviderError("Valhalla (attributs de voie) injoignable.") from exc
+
+        if response.status_code >= 400:
+            raise RoutingProviderError(f"Valhalla (attributs de voie) a répondu {response.status_code}.")
+
+        try:
+            body = response.json()
+            edges = body["edges"]
+        except (ValueError, KeyError) as exc:
+            raise RoutingProviderError("Réponse Valhalla inattendue (attributs de voie absents).") from exc
+
+        surface_segments: list[SegmentAttribut] = []
+        road_class_segments: list[SegmentAttribut] = []
+        try:
+            for edge in edges:
+                # Un élément d'`edges` qui n'est pas un objet (ex. une chaîne
+                # ou une liste dans un corps par ailleurs malformé) ferait
+                # lever `AttributeError` sur `.get(...)` ci-dessous -- rejeté
+                # explicitement ici, même sévérité que les autres réponses
+                # inattendues de cette méthode (revue post-implémentation).
+                if not isinstance(edge, dict):
+                    raise TypeError("segment d'attributs de voie invalide (pas un objet)")
+                longueur_brute = edge["length"]
+                # `bool` est une sous-classe d'`int` en Python : `float(True)`
+                # vaudrait silencieusement `1.0` sans ce garde-fou explicite
+                # -- même garde que `duration_s` (`route()` ci-dessus) et les
+                # altitudes de `ValhallaElevationProvider`. Une longueur
+                # négative n'a de toute façon aucun sens (revue post-
+                # implémentation).
+                if isinstance(longueur_brute, bool) or float(longueur_brute) < 0:
+                    raise ValueError("longueur de segment invalide")
+                # `edges[].length` est en kilomètres côté Valhalla -- converti
+                # en mètres à cette frontière (AD-11), jamais propagé tel quel.
+                longueur_m = float(longueur_brute) * 1000.0
+                surface_segments.append(SegmentAttribut(distance_m=longueur_m, valeur=_valeur_ou_inconnue(edge, "surface")))
+                road_class_segments.append(
+                    SegmentAttribut(distance_m=longueur_m, valeur=_valeur_ou_inconnue(edge, "road_class"))
+                )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise RoutingProviderError("Réponse Valhalla inattendue (longueur de segment invalide).") from exc
+
+        return tuple(surface_segments), tuple(road_class_segments)
 
     def _points_non_rattachables(self, points: list[Coordinate]) -> list[Coordinate]:
         payload = {

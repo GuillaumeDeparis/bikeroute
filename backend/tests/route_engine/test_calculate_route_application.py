@@ -10,7 +10,7 @@ import pytest
 from app.route_engine.application.calculate_route import ParametresInvalides, calculer_parcours
 from app.route_engine.application.ports import ElevationProviderError, RoutingProviderError
 from app.route_engine.domain.metrics import METRICS_VERSION
-from app.route_engine.domain.models import Coordinate, RouteResult
+from app.route_engine.domain.models import Coordinate, RouteResult, SegmentAttribut
 from app.route_engine.domain.route import STATUT_NON_ROUTE, STATUT_ROUTE
 
 from .fakes import FakeElevationProvider, FakeRoutingProvider, InMemoryRouteRepository
@@ -48,6 +48,48 @@ def test_calcule_et_persiste_un_parcours_route() -> None:
     assert route.metrics.denivele_positif_m == pytest.approx(10.0)
     assert route.metrics.denivele_negatif_m == pytest.approx(0.0)
     assert route.metrics.duree_s == 120.0
+
+
+def test_surface_et_road_class_segments_sont_transmis_au_bon_parametre_de_calculer_metriques() -> None:
+    """Revue post-implémentation (verification-gap) : `surface_segments`/
+    `road_class_segments` sont deux `tuple[SegmentAttribut, ...]` -- si
+    `calculate_route.py` les inversait au site d'appel de
+    `calculer_metriques`, aucun test existant (tous par défaut `()` sur les
+    deux) ne le détecterait. Des valeurs distinctes sur chaque champ ici le
+    détecteraient : `revetements` doit refléter `surface_segments`, jamais
+    `road_class_segments`, et inversement pour `categories_routieres`."""
+    depart = Coordinate(lat=45.0, lon=5.0)
+    destination = Coordinate(lat=45.005, lon=5.005)
+    surface_segments = (SegmentAttribut(distance_m=500.0, valeur="asphalte"),)
+    road_class_segments = (SegmentAttribut(distance_m=500.0, valeur="residential"),)
+    result = RouteResult(
+        geometry=(depart, destination),
+        unrouted_points=(),
+        provider="valhalla",
+        version="3.8.3",
+        duration_s=120.0,
+        surface_segments=surface_segments,
+        road_class_segments=road_class_segments,
+    )
+    provider = FakeRoutingProvider(result=result)
+    elevation_provider = FakeElevationProvider(elevations=(100.0, 100.0))
+    repository = InMemoryRouteRepository()
+
+    route = calculer_parcours(
+        routing_provider=provider,
+        elevation_provider=elevation_provider,
+        repository=repository,
+        account_id=uuid.uuid4(),
+        points=[depart, destination],
+    )
+
+    assert route.metrics is not None
+    # Présence de la bonne clé dans le bon champ (un swap ferait échouer ces
+    # accès avec `KeyError`, ou laisserait la clé dans l'autre champ).
+    assert route.metrics.revetements["asphalte"] == pytest.approx(500.0 / route.metrics.distance_m)
+    assert route.metrics.categories_routieres["residential"] == pytest.approx(500.0 / route.metrics.distance_m)
+    assert "residential" not in route.metrics.revetements
+    assert "asphalte" not in route.metrics.categories_routieres
 
 
 def test_persiste_un_parcours_non_route_sans_lever() -> None:

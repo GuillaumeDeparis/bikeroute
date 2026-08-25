@@ -26,6 +26,18 @@ class Coordinate:
 
 
 @dataclass(frozen=True, slots=True)
+class SegmentAttribut:
+    """Un segment continu (mètres) d'un même attribut de voie -- revêtement
+    ou catégorie routière (spec-2-5, NFR-10), tel que renvoyé par
+    `/trace_attributes` (`edges[]`). `valeur` vaut toujours "inconnu" quand
+    l'attribut est absent côté OSM/Valhalla -- jamais replié silencieusement
+    dans une valeur favorable (NFR-10)."""
+
+    distance_m: float
+    valeur: str
+
+
+@dataclass(frozen=True, slots=True)
 class RouteResult:
     """Résultat d'un appel à un `RoutingProvider` (AD-8).
 
@@ -44,6 +56,12 @@ class RouteResult:
     # routé (`metrics=None`, jamais utilisé), et garde les tests/doubles
     # existants valides sans avoir à le renseigner explicitement.
     duration_s: float = 0.0
+    # Revêtements/catégories routières par segment (spec-2-5, NFR-10) --
+    # `/trace_attributes` côté `ValhallaRoutingProvider`. Défaut `()` : sans
+    # effet pour un résultat non routé (jamais utilisé), et garde les tests/
+    # doubles existants valides sans avoir à les renseigner explicitement.
+    surface_segments: tuple[SegmentAttribut, ...] = ()
+    road_class_segments: tuple[SegmentAttribut, ...] = ()
 
     @property
     def est_route(self) -> bool:

@@ -23,7 +23,14 @@ from ...domain.route import STATUT_ROUTE
 from ..outbound.postgis_route_repository import PostgisRouteRepository
 from ..outbound.valhalla_elevation_provider import ValhallaElevationProvider
 from ..outbound.valhalla_provider import ValhallaRoutingProvider
-from .schemas import CalculerParcoursRequest, MetriquesResponse, ParcoursResponse, PointResponse
+from .schemas import (
+    CalculerParcoursRequest,
+    MetriquesResponse,
+    MonteeSignificativeResponse,
+    ParcoursResponse,
+    PointProfilResponse,
+    PointResponse,
+)
 
 router = APIRouter(prefix="/api/routes", tags=["routes"])
 
@@ -92,6 +99,18 @@ def calculate(
             denivele_negatif_m=route.metrics.denivele_negatif_m,
             duree_s=route.metrics.duree_s,
             difficulte=route.metrics.difficulte,
+            revetements=route.metrics.revetements,
+            categories_routieres=route.metrics.categories_routieres,
+            profil=[
+                PointProfilResponse(distance_m=point.distance_m, elevation_m=point.elevation_m)
+                for point in route.metrics.profil
+            ],
+            montees_significatives=[
+                MonteeSignificativeResponse(
+                    distance_m=montee.distance_m, denivele_m=montee.denivele_m, pente_moyenne=montee.pente_moyenne
+                )
+                for montee in route.metrics.montees_significatives
+            ],
         )
         if routed and route.metrics is not None
         else None

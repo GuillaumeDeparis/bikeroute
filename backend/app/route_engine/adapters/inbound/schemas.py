@@ -28,6 +28,17 @@ class PointResponse(BaseModel):
     lon: float
 
 
+class PointProfilResponse(BaseModel):
+    distance_m: float
+    elevation_m: float
+
+
+class MonteeSignificativeResponse(BaseModel):
+    distance_m: float
+    denivele_m: float
+    pente_moyenne: float
+
+
 class MetriquesResponse(BaseModel):
     # Méthode de calcul unique et versionnée (NFR-9) : traçabilité de la
     # méthode qui a produit ces valeurs, même si elle change ensuite (cf.
@@ -38,6 +49,14 @@ class MetriquesResponse(BaseModel):
     denivele_negatif_m: float
     duree_s: float
     difficulte: Difficulte
+    # Proportions (0..1) par valeur de revêtement/catégorie routière -- clé
+    # "inconnu" toujours présente, même à 0.0 (NFR-10, cf. `domain/metrics.py`).
+    revetements: dict[str, float]
+    categories_routieres: dict[str, float]
+    # Profil altimétrique point-à-point (mêmes vertices que D+/D-), jamais
+    # un binning par paliers -- rendu en courbe continue côté frontend.
+    profil: list[PointProfilResponse]
+    montees_significatives: list[MonteeSignificativeResponse]
 
 
 class ParcoursResponse(BaseModel):

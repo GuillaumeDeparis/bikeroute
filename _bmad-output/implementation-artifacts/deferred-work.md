@@ -31,16 +31,36 @@
   evidence: Aujourd'hui un utilisateur avec plusieurs sessions actives ne peut pas savoir laquelle est laquelle avant de révoquer. À concevoir délibérément plutôt qu'en ajoutant une capture d'IP/UA par défaut, car AD-10 (minimisation des journaux) demande de ne pas collecter ce type de donnée sans raison explicite.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
-  summary: Ajouter revêtements, catégories routières, montées significatives et le profil altimétrique en courbe continue à la bulle de métriques déployée (FR-40 complet).
-  evidence: Spec initiale au-dessus de la cible 900-1600 tokens (~1800-3000 estimés) — le socle (distance/D+/D-/durée/difficulté via `ElevationProvider`+skadi, résumé persistant compact/déployé) suffit à livrer NFR-9 et le gros de FR-47 ; l'extraction `/trace_attributes` (revêtements/catégories, NFR-10) et la détection de montées significatives + rendu de courbe SVG sont un second appel Valhalla et un algorithme de segmentation distincts, scindés pour rester dans un contexte d'implémentation maîtrisable. Dépend du socle (même `RouteMetrics`/bulle) livré par la spec source.
-
-- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
   summary: Lisser le profil d'élévation avant de cumuler D+/D- (`calculer_metriques`), au lieu de sommer chaque delta brut entre points consécutifs de la géométrie routée.
   evidence: Relevé en revue (blind hunter) : les échantillons SRTM/skadi bruts sont bruités à la résolution d'une polyligne dense ; sommer chaque micro-fluctuation surestime systématiquement D+/D- par rapport à un profil lissé. Pas de seuil/méthode de lissage tranché dans la spec (aucune décision "Ask First" ne le couvrait) ; nécessite un choix délibéré (seuil de delta minimal, fenêtre de lissage) plutôt qu'un correctif isolé.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé.md`
   summary: Dimensionner l'appel Valhalla `/height` (timeout dédié, chunking/décimation de la géométrie) pour les parcours longs ou à nombreux points, plutôt que de réutiliser tel quel le timeout du `RoutingProvider`.
   evidence: Relevé en revue (blind hunter) : chaque calcul de parcours routé déclenche désormais deux appels Valhalla séquentiels (routage puis élévation sur la géométrie décodée complète, potentiellement dense pour une boucle/multi-étapes longue), sans stratégie de repli si `/height` devient plus lent que `/route` sur un tracé volumineux.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: Étendre à `/trace_attributes` le même travail de dimensionnement déjà différé pour `/height` (timeout dédié, chunking de la géométrie décodée).
+  evidence: Relevé en revue (blind hunter) : chaque calcul routé déclenche désormais trois appels Valhalla séquentiels (`/route`, `/height`, `/trace_attributes`), ce dernier envoyant lui aussi la géométrie décodée complète sans chunking ni discussion de taille de payload pour un tracé long/multi-étapes.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: Garantir que `revetements`/`categories_routieres` somment à 1.0 (ou documenter/tester explicitement les écarts), et couvrir le cas d'une correspondance `/trace_attributes` partielle (edges ne couvrant pas toute la distance routée).
+  evidence: Relevé en revue (blind hunter + edge-case hunter) : les proportions sont calculées en divisant la longueur de chaque segment `/trace_attributes` (map-matching) par `distance_m` (haversine sur la géométrie `/route`) -- deux calculs Valhalla distincts, jamais réconciliés. Aucun test n'affirme que la somme vaut 1.0, ni ne couvre une correspondance partielle qui sous-estimerait silencieusement les proportions.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: Partager un seul sérialiseur pour la forme des métriques au lieu de la redéclarer/mapper à la main à 4 endroits (JSONB du repository, réponse du router, schémas Pydantic, mapping snake→camel de `client.ts`).
+  evidence: Relevé en revue (blind hunter) : chaque nouveau champ de métrique exige 4 modifications synchronisées ; déjà source d'un risque d'inversion de champs (cf. patches appliqués sur ce même diff), qui grandira à mesure que d'autres métriques s'ajoutent.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: Prévoir un chemin de lecture rétro-compatible pour `METRICS_VERSION` avant d'exposer un futur endpoint de lecture/liste de parcours (routes persistées en v1, sans `revetements`/`categories_routieres`/`profil`/`montees_significatives`).
+  evidence: Relevé en revue (blind hunter) : sans conséquence tant qu'aucun endpoint ne relit `routes.metrics` (seul `POST /api/routes/calculate` existe aujourd'hui), mais deviendra bloquant dès qu'un tel endpoint (ex. "Mes parcours", Story 2.6) sera construit sans y avoir pensé au préalable.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: La détection de montées significatives casse un segment continu sur tout delta d'élévation non strictement positif -- sensible au même bruit SRTM/skadi déjà signalé pour D+/D- (une micro-baisse peut scinder une vraie montée en deux segments individuellement sous le seuil).
+  evidence: Relevé en revue (blind hunter) : interaction directe avec l'entrée déjà différée sur le lissage du profil d'élévation (spec-2-5 socle) -- cette entrée touche désormais aussi la détection de montées, pas seulement D+/D-, et un futur lissage devra couvrir les deux.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-revêtements-catégories-montées-profil-altimétrique.md`
+  summary: Les pourcentages de revêtements/catégories routières affichés côté frontend sont arrondis indépendamment (`formatPourcentage`) et peuvent visiblement ne pas sommer à 100 %.
+  evidence: Relevé en revue (blind hunter) : ex. trois entrées à 33,3 % affichées "33 % / 33 % / 33 %". Cosmétique (pas de donnée fausse, juste un arrondi non ajusté), mais perceptible par l'utilisateur ; une répartition du reste (plus grand reste) réglerait proprement le cas, hors scope d'un correctif isolé.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-1-inscription-d-un-nouveau-compte.md`
   summary: Ajouter un README racine documentant `docker compose up`, la migration Alembic hors Docker, et l'acceptation du certificat auto-signé du frontend en local.

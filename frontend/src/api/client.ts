@@ -145,6 +145,22 @@ export interface PointCoordonnee {
  * client, uniquement la valeur déjà produite par le backend. */
 export type Difficulte = 'facile' | 'modere' | 'difficile' | 'tres_difficile'
 
+/** Un point du profil altimétrique -- point-à-point sur la géométrie routée
+ * réelle (mêmes points que D+/D-, jamais un binning par paliers). */
+export interface PointProfil {
+  distanceM: number
+  elevationM: number
+}
+
+/** Un segment continu de montée jugé significatif côté backend (≥500 m à
+ * ≥3 % de pente moyenne, ou ≥50 m de D+ cumulé -- cf. Design Notes de la
+ * spec-2-5). `penteMoyenne` en pourcentage (ex. `4.2` pour 4,2 %). */
+export interface MonteeSignificative {
+  distanceM: number
+  deniveleM: number
+  penteMoyenne: number
+}
+
 /** Métriques d'un parcours routé (spec-2-5) : une unique méthode serveur
  * versionnée (`version`), jamais recalculée côté client -- même valeur sur
  * tous les écrans (NFR-9). `undefined` sur `ResultatParcours` pour un
@@ -156,6 +172,15 @@ export interface Metriques {
   deniveleNegatifM: number
   dureeS: number
   difficulte: Difficulte
+  /** Proportions (0..1) par valeur de revêtement -- clé "inconnu" toujours
+   * présente, même à `0`, jamais repliée silencieusement dans une valeur
+   * favorable (NFR-10). */
+  revetements: Record<string, number>
+  categoriesRoutieres: Record<string, number>
+  /** Courbe altimétrique continue (jamais par paliers) : mêmes points que
+   * D+/D-, densité dépendante de la géométrie routée. */
+  profil: PointProfil[]
+  monteesSignificatives: MonteeSignificative[]
 }
 
 export interface ResultatParcours {
@@ -210,6 +235,14 @@ export async function calculerParcours(
         denivele_negatif_m: number
         duree_s: number
         difficulte: Difficulte
+        revetements: Record<string, number>
+        categories_routieres: Record<string, number>
+        // Optionnels côté type (pas seulement runtime, revue post-
+        // implémentation) : une réponse qui omettrait ces champs (dérive de
+        // contrat/déploiement) ne doit jamais faire échouer le mapping --
+        // défendu par `?? []` ci-dessous.
+        profil?: { distance_m: number; elevation_m: number }[]
+        montees_significatives?: { distance_m: number; denivele_m: number; pente_moyenne: number }[]
       } | null
     }
     return {
@@ -228,6 +261,21 @@ export async function calculerParcours(
             deniveleNegatifM: data.metriques.denivele_negatif_m,
             dureeS: data.metriques.duree_s,
             difficulte: data.metriques.difficulte,
+            revetements: data.metriques.revetements,
+            categoriesRoutieres: data.metriques.categories_routieres,
+            // `?? []` (revue post-implémentation) : une réponse qui omettrait
+            // ces champs (dérive de contrat/déploiement backend/frontend) ne
+            // doit jamais faire échouer tout le calcul de parcours avec un
+            // `TypeError` sur `.map(...)` d'`undefined`.
+            profil: (data.metriques.profil ?? []).map((point) => ({
+              distanceM: point.distance_m,
+              elevationM: point.elevation_m,
+            })),
+            monteesSignificatives: (data.metriques.montees_significatives ?? []).map((montee) => ({
+              distanceM: montee.distance_m,
+              deniveleM: montee.denivele_m,
+              penteMoyenne: montee.pente_moyenne,
+            })),
           }
         : undefined,
     }

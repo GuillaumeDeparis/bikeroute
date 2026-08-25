@@ -22,7 +22,7 @@ import pytest
 
 from app.route_engine.adapters.outbound.valhalla_provider import ValhallaRoutingProvider
 from app.route_engine.application.ports import RoutingProviderError
-from app.route_engine.domain.models import Coordinate
+from app.route_engine.domain.models import Coordinate, SegmentAttribut
 
 DEPART = Coordinate(lat=45.0000, lon=5.0000)
 DESTINATION = Coordinate(lat=45.0050, lon=5.0050)
@@ -39,6 +39,15 @@ _LOCATE_NON_RATTACHABLE_ENTRY = {"edges": [], "nodes": []}
 # Capturé contre un vrai `valhalla_service` servant le corpus minimal :
 # décode en [(45.0, 5.0), (45.005, 5.0), (45.005, 5.005)] (précision 1e6).
 _ROUTE_SHAPE = "_sqytA_sdpHowH??owH"
+
+# Corps `/trace_attributes` (spec-2-5) : `edges[].length` en kilomètres,
+# converti en mètres côté adaptateur -- 0.3 km puis 0.2 km ici.
+_TRACE_ATTRIBUTES_BODY = {
+    "edges": [
+        {"length": 0.3, "surface": "paved", "road_class": "residential"},
+        {"length": 0.2, "surface": "gravel", "road_class": "unclassified"},
+    ]
+}
 
 
 def _encode_polyline6(coords: list[tuple[float, float]]) -> str:
@@ -80,6 +89,8 @@ def test_route_deux_points_rattachables_decode_la_geometrie() -> None:
             return httpx.Response(
                 200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}], "summary": {"time": 187.0}}}
             )
+        if request.url.path == "/trace_attributes":
+            return httpx.Response(200, json=_TRACE_ATTRIBUTES_BODY)
         raise AssertionError(f"URL inattendue : {request.url}")
 
     provider = _provider(handler)
@@ -91,6 +102,16 @@ def test_route_deux_points_rattachables_decode_la_geometrie() -> None:
     assert result.unrouted_points == ()
     assert [(c.lat, c.lon) for c in result.geometry] == [(45.0, 5.0), (45.005, 5.0), (45.005, 5.005)]
     assert result.duration_s == 187.0
+    # `/trace_attributes` (spec-2-5) : `edges[].length` (km) converti en
+    # mètres, revêtement/catégorie tels quels.
+    assert result.surface_segments == (
+        SegmentAttribut(distance_m=300.0, valeur="paved"),
+        SegmentAttribut(distance_m=200.0, valeur="gravel"),
+    )
+    assert result.road_class_segments == (
+        SegmentAttribut(distance_m=300.0, valeur="residential"),
+        SegmentAttribut(distance_m=200.0, valeur="unclassified"),
+    )
 
 
 def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
@@ -118,6 +139,8 @@ def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
                     }
                 },
             )
+        if request.url.path == "/trace_attributes":
+            return httpx.Response(200, json={"edges": []})
         raise AssertionError(f"URL inattendue : {request.url}")
 
     provider = _provider(handler)
@@ -210,6 +233,123 @@ def test_duree_du_trajet_absente_leve_routing_provider_error() -> None:
             return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
         if request.url.path == "/route":
             return httpx.Response(200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}]}})
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+def _handler_route_ok_avec_trace_attributes(trace_attributes_response: httpx.Response):
+    """Fabrique un handler `/status`+`/locate`+`/route` réussis (mêmes corps
+    que `test_route_deux_points_rattachables_decode_la_geometrie`), pour ne
+    tester que le comportement de `/trace_attributes` ci-dessous."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
+        if request.url.path == "/route":
+            return httpx.Response(
+                200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}], "summary": {"time": 187.0}}}
+            )
+        if request.url.path == "/trace_attributes":
+            return trace_attributes_response
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    return handler
+
+
+def test_trace_attributes_surface_et_road_class_absents_deviennent_inconnu() -> None:
+    """`edges[].surface`/`road_class` absents (spec-2-5, NFR-10) : jamais
+    repliés dans une valeur favorable, toujours `"inconnu"`."""
+    handler = _handler_route_ok_avec_trace_attributes(
+        httpx.Response(200, json={"edges": [{"length": 0.5}]})
+    )
+    provider = _provider(handler)
+
+    result = provider.route([DEPART, DESTINATION])
+
+    assert result.surface_segments == (SegmentAttribut(distance_m=500.0, valeur="inconnu"),)
+    assert result.road_class_segments == (SegmentAttribut(distance_m=500.0, valeur="inconnu"),)
+
+
+def test_trace_attributes_en_echec_leve_routing_provider_error() -> None:
+    """Matrice I/O de la spec : `/trace_attributes` indisponible/erreur ->
+    même `RoutingProviderError` (même 502 côté API) que le reste."""
+    handler = _handler_route_ok_avec_trace_attributes(httpx.Response(502, text="indisponible"))
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+def test_trace_attributes_reponse_sans_edges_leve_routing_provider_error() -> None:
+    handler = _handler_route_ok_avec_trace_attributes(httpx.Response(200, json={}))
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+def test_trace_attributes_edge_non_objet_leve_routing_provider_error() -> None:
+    """Revue post-implémentation : un élément d'`edges` qui n'est pas un
+    objet (ex. une chaîne, dans un corps par ailleurs malformé) ferait lever
+    `AttributeError` sur `.get(...)` sans le garde-fou explicite -- doit
+    rester un `RoutingProviderError` propre, jamais une exception non gérée."""
+    handler = _handler_route_ok_avec_trace_attributes(httpx.Response(200, json={"edges": ["pas un objet"]}))
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+@pytest.mark.parametrize("longueur_invalide", [True, False, -0.5])
+def test_trace_attributes_longueur_booleenne_ou_negative_leve_routing_provider_error(
+    longueur_invalide: object,
+) -> None:
+    """Même garde que `duration_s` (`route()`) et les altitudes de
+    `ValhallaElevationProvider` -- `bool` est une sous-classe d'`int` en
+    Python (`float(True)` vaudrait silencieusement `1.0`), et une longueur
+    négative n'a de toute façon aucun sens."""
+    handler = _handler_route_ok_avec_trace_attributes(
+        httpx.Response(200, json={"edges": [{"length": longueur_invalide, "surface": "paved"}]})
+    )
+    provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+def test_trace_attributes_surface_uniquement_des_espaces_devient_inconnu() -> None:
+    """Une valeur `surface`/`road_class` qui n'est qu'un espace (chaîne vide
+    après `strip()`) est traitée comme "inconnu", jamais comme un libellé
+    errant fait uniquement d'espaces (revue post-implémentation)."""
+    handler = _handler_route_ok_avec_trace_attributes(
+        httpx.Response(200, json={"edges": [{"length": 0.5, "surface": "   ", "road_class": "\t"}]})
+    )
+    provider = _provider(handler)
+
+    result = provider.route([DEPART, DESTINATION])
+
+    assert result.surface_segments == (SegmentAttribut(distance_m=500.0, valeur="inconnu"),)
+    assert result.road_class_segments == (SegmentAttribut(distance_m=500.0, valeur="inconnu"),)
+
+
+def test_trace_attributes_panne_reseau_leve_routing_provider_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
+        if request.url.path == "/route":
+            return httpx.Response(
+                200, json={"trip": {"legs": [{"shape": _ROUTE_SHAPE}], "summary": {"time": 187.0}}}
+            )
+        if request.url.path == "/trace_attributes":
+            raise httpx.ConnectError("connexion refusée", request=request)
         raise AssertionError(f"URL inattendue : {request.url}")
 
     provider = _provider(handler)
