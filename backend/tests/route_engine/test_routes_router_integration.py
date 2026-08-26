@@ -7,6 +7,7 @@ PostgreSQL/PostGIS (via `client`/`db_session`, cf. `conftest.py`), mais
 from __future__ import annotations
 
 from uuid import uuid4
+from xml.etree import ElementTree as ET
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,9 @@ from sqlalchemy import select
 
 from app.main import app
 from app.models.route import Route as RouteModel
+from app.models.route_export import RouteExport as RouteExportModel
 from app.route_engine.application.ports import RoutingProviderError
+from app.route_engine.adapters.inbound.routes_router import _nom_fichier_gpx
 from app.route_engine.bootstrap.elevation import get_elevation_provider
 from app.route_engine.bootstrap.routing import get_routing_provider
 from app.route_engine.domain.models import Coordinate, RouteResult
@@ -538,3 +541,128 @@ def test_reouverture_dun_ancien_parcours_sans_revetements_ni_profil_naffiche_que
     assert body["metriques"]["categories_routieres"] == {"inconnu": 0.0}
     assert body["metriques"]["profil"] == []
     assert body["metriques"]["montees_significatives"] == []
+
+
+def test_export_reussi_renvoie_un_gpx_bien_forme_et_journalise_lhistorique(client: TestClient, db_session) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Boucle du dimanche"})
+
+    response = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/gpx+xml")
+    assert response.headers["content-disposition"] == 'attachment; filename="boucle-du-dimanche.gpx"'
+
+    racine = ET.fromstring(response.text)
+    ns = {"gpx": "http://www.topografix.com/GPX/1/1"}
+    trkpts = racine.findall("gpx:trk/gpx:trkseg/gpx:trkpt", ns)
+    assert len(trkpts) == 2
+    assert trkpts[0].find("gpx:ele", ns).text == "100.0"
+    wpts = racine.findall("gpx:wpt", ns)
+    assert [wpt.find("gpx:name", ns).text for wpt in wpts] == ["Départ", "Arrivée"]
+
+    lignes = list(db_session.execute(select(RouteExportModel)).scalars())
+    assert len(lignes) == 1
+    assert str(lignes[0].route_id) == parcours["id"]
+
+
+def test_export_sans_nom_utilise_un_nom_de_fichier_generique(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+    assert parcours["nom"] is None  # jamais renseigné par `/calculate` (schéma `ParcoursResponse`)
+
+    response = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="parcours.gpx"'
+
+
+def test_export_dun_parcours_non_route_est_refuse_sans_journaliser(client: TestClient, db_session) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_non_route(client)
+    assert parcours["statut"] == "non_route"
+
+    response = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "PARCOURS_NON_PRET"
+    assert list(db_session.execute(select(RouteExportModel)).scalars()) == []
+
+
+def test_export_dun_parcours_dun_autre_compte_renvoie_404(client: TestClient) -> None:
+    _inscrire_et_connecter(client, identifiant="alice")
+    parcours = _calculer_un_parcours_route(client)
+
+    client.post("/api/auth/logout")
+    _inscrire_et_connecter(client, identifiant="bob")
+
+    response = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESSOURCE_INTROUVABLE"
+
+
+def test_export_dun_id_inexistant_renvoie_404_identique(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+
+    response = client.post(f"/api/routes/{uuid4()}/export")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESSOURCE_INTROUVABLE"
+
+
+def test_export_sans_authentification_renvoie_401(client: TestClient) -> None:
+    response = client.post(f"/api/routes/{uuid4()}/export")
+
+    assert response.status_code == 401
+
+
+def test_export_repete_journalise_une_ligne_par_export(client: TestClient, db_session) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    premiere = client.post(f"/api/routes/{parcours['id']}/export")
+    seconde = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert premiere.status_code == 200
+    assert seconde.status_code == 200
+    lignes = list(db_session.execute(select(RouteExportModel)).scalars())
+    assert len(lignes) == 2
+
+
+def test_export_dun_ancien_parcours_sans_profil_est_refuse_proprement_sans_journaliser(
+    client: TestClient, db_session
+) -> None:
+    """Un parcours `routed` calculé avant la story 2.5 (détail) a un
+    `metrics` JSONB sans clé `"profil"` (même scénario que
+    `test_reouverture_dun_ancien_parcours_sans_revetements_ni_profil...`) --
+    le GPX ne peut structurellement pas porter d'élévation sur tout le tracé
+    dans ce cas (Boundaries "Always" du spec) : traité comme "pas encore
+    prêt" (422), jamais un 500 non documenté."""
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    row = db_session.execute(select(RouteModel).where(RouteModel.id == parcours["id"])).scalar_one()
+    row.metrics = {
+        "distance_m": row.metrics["distance_m"],
+        "denivele_positif_m": row.metrics["denivele_positif_m"],
+        "denivele_negatif_m": row.metrics["denivele_negatif_m"],
+        "duree_s": row.metrics["duree_s"],
+        "difficulte": row.metrics["difficulte"],
+    }
+    db_session.commit()
+
+    response = client.post(f"/api/routes/{parcours['id']}/export")
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "PARCOURS_NON_PRET"
+    assert list(db_session.execute(select(RouteExportModel)).scalars()) == []
+
+
+def test_nom_fichier_gpx_dun_nom_qui_se_translittere_en_chaine_vide_retombe_sur_le_generique() -> None:
+    """Un nom entièrement non-ASCII (ex. sinogrammes, emoji) ne survit pas à
+    la translittération NFKD -> ASCII : `slug` devient vide, jamais un nom de
+    fichier vide ni non téléchargeable (Boundaries du spec)."""
+    assert _nom_fichier_gpx("中文") == "parcours.gpx"
+    assert _nom_fichier_gpx("🚴") == "parcours.gpx"

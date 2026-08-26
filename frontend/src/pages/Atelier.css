@@ -455,6 +455,64 @@
   font-size: 0.85rem;
 }
 
+/* Export GPX (spec-2-7) : même palette que `.atelier__enregistrement-zone`
+   ci-dessus, sans formulaire (un simple bouton suffit à déclencher le
+   téléchargement) -- réutilise `.atelier__confirmation`/`.atelier__erreur`
+   pour les deux issues possibles. */
+.atelier__export-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.atelier__exporter {
+  align-self: flex-start;
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.atelier__exporter:hover,
+.atelier__exporter:focus-visible {
+  background: #23583e;
+}
+
+.atelier__exporter:disabled {
+  cursor: not-allowed;
+  background: #9fbfae;
+}
+
+.atelier__confirmation-export {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.atelier__confirmation-export-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.atelier__confirmation-export-actions button {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid #cfe0d7;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #17324d;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.atelier__confirmation-export-actions button:hover,
+.atelier__confirmation-export-actions button:focus-visible {
+  background: #f2f8f5;
+}
+
 .atelier__bandeau-non-route {
   padding: 0.75rem 1rem;
   border: 1px solid #e0b84a;

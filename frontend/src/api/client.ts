@@ -403,6 +403,39 @@ export async function obtenirParcours(id: string): Promise<ResultatParcours> {
   throw await toApiError(response)
 }
 
+export interface ResultatExport {
+  blob: Blob
+  nomFichier: string
+}
+
+/** Extrait le nom de fichier depuis l'en-tête `Content-Disposition:
+ * attachment; filename="..."` posé par le backend -- retombe sur un nom
+ * générique si l'en-tête est absent/mal formé (jamais de téléchargement
+ * sans nom exploitable, cf. matrice I/O de la spec-2-7). */
+function nomFichierDepuisContentDisposition(entete: string | null): string {
+  const correspondance = entete?.match(/filename="([^"]*)"/)
+  return correspondance?.[1] || 'parcours.gpx'
+}
+
+/** Génère et télécharge le GPX d'un parcours déjà calculé (`statut ===
+ * 'routed'`, spec-2-7) -- relit le tracé/le profil déjà persistés côté
+ * backend, ne recalcule jamais rien. Chaque export réussi est journalisé
+ * côté backend dans l'historique du compte connecté. */
+export async function exporterParcours(id: string): Promise<ResultatExport> {
+  const response = await fetch(`/api/routes/${id}/export`, {
+    method: 'POST',
+    credentials: 'include',
+  })
+
+  if (response.status === 200) {
+    const blob = await response.blob()
+    const nomFichier = nomFichierDepuisContentDisposition(response.headers.get('Content-Disposition'))
+    return { blob, nomFichier }
+  }
+
+  throw await toApiError(response)
+}
+
 export interface ResultatAdresse {
   label: string
   lat: number

@@ -141,3 +141,15 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
   summary: Le Save form de l'Atelier ne réinitialise pas le message d'erreur d'enregistrement à chaque frappe (seulement au prochain "Enregistrer"), et ne réinitialise ni l'erreur ni la confirmation à la fermeture (×) du formulaire -- rouvrir plus tard peut réafficher un statut obsolète d'une tentative précédente.
   evidence: Cosmétique (le message reste factuellement vrai sur la dernière tentative), distinct du cas patché (confirmation obsolète après une édition qui invalide `parcoursId`, corrigé dans cette story) -- signalé par la revue edge-case-hunter.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-exporter-un-parcours-en-gpx.md`
+  summary: Reconsidérer `ondelete="CASCADE"` sur `route_exports.route_id`/`account_id` une fois une fonctionnalité de suppression de parcours/compte et la nouveauté historique (Epic 3, FR-25) existantes.
+  evidence: La table `route_exports` existe pour alimenter la pénalité de nouveauté d'une future génération assistée ; une cascade de suppression efface cet historique en même temps que le parcours/compte source, ce qui contredit son rôle d'historique si une suppression de parcours est un jour ajoutée. Aucune fonctionnalité de suppression n'existe encore (ni pour un parcours, ni pour un compte) : rien à corriger maintenant, à réexaminer avec Epic 3/Story 3.6 ou toute future story de suppression.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-exporter-un-parcours-en-gpx.md`
+  summary: Ajouter un index sur `route_exports.route_id`.
+  evidence: Seuls `account_id` et `exported_at` sont indexés ; une requête "combien de fois ce parcours a-t-il été exporté" (utile à la nouveauté historique, Epic 3) filtrerait sur `route_id`, non indexé par défaut par PostgreSQL sur une clé étrangère. Volume de données actuel trop faible pour que ce soit bloquant.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-7-exporter-un-parcours-en-gpx.md`
+  summary: Inclure l'altitude (`<ele>`) sur les `<wpt>` du GPX exporté, pas seulement sur les `<trkpt>` du tracé.
+  evidence: Le profil altimétrique n'est actuellement disponible qu'aux points de la géométrie routée, pas aux points d'entrée bruts (départ/passages/arrivée) ; certains lecteurs GPX affichent l'altitude des waypoints. Amélioration de complétude, non requise par les Boundaries de la spec ("trkpt avec élévation" ; aucune exigence équivalente sur les wpt).

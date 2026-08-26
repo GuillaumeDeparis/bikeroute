@@ -7,10 +7,12 @@ aucune logique de routage elle-même (AD-1/AD-8)."""
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DBSession
 
@@ -18,6 +20,7 @@ from ....db import get_db
 from ....errors import AppError
 from ....models.account import Account
 from ....models.route import Route as RouteModel
+from ....models.route_export import RouteExport
 from ....schemas.auth import ErrorResponse
 from ....services.authorization import get_owned_or_404
 from ....services.sessions import get_current_account
@@ -25,6 +28,8 @@ from ...application.calculate_route import ParametresInvalides, calculer_parcour
 from ...application.ports import ElevationProviderError, RoutingProviderError
 from ...bootstrap.elevation import get_elevation_provider
 from ...bootstrap.routing import get_routing_provider
+from ...domain.gpx import construire_gpx
+from ...domain.metrics import PointProfil
 from ...domain.models import Coordinate
 from ...domain.route import STATUT_ROUTE
 from ..outbound.postgis_route_repository import PostgisRouteRepository
@@ -266,6 +271,78 @@ def enregistrer(
     db.commit()
 
     return _parcours_response_depuis_modele(db, model)
+
+
+def _nom_fichier_gpx(nom: str | None) -> str:
+    """Slug ASCII de `nom` (translittéré, espaces/ponctuation -> tirets) +
+    `.gpx`, ou `parcours.gpx` générique si `nom` est nul ou vide une fois
+    translittéré -- jamais de caractère non-ASCII brut dans
+    `Content-Disposition` (RFC 6266), jamais de nom de fichier vide ni non
+    téléchargeable (Boundaries de la spec)."""
+    if not nom:
+        return "parcours.gpx"
+    ascii_nom = unicodedata.normalize("NFKD", nom).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^A-Za-z0-9]+", "-", ascii_nom).strip("-").lower()
+    return f"{slug}.gpx" if slug else "parcours.gpx"
+
+
+@router.post(
+    "/{route_id}/export",
+    responses={
+        401: {"model": ErrorResponse, "description": "Session absente, inconnue ou expirée."},
+        404: {"model": ErrorResponse, "description": "Parcours introuvable ou appartenant à un autre compte."},
+        422: {"model": ErrorResponse, "description": "Parcours pas encore routé."},
+    },
+)
+def exporter(
+    route_id: uuid.UUID,
+    account: Account = Depends(get_current_account),
+    db: DBSession = Depends(get_db),
+) -> Response:
+    """Génère un GPX 1.1 depuis le tracé/le profil déjà persistés (spec-2-7)
+    -- même garde que `enregistrer` ci-dessus (`statut == "routed"`), jamais
+    de nouvel appel Valhalla (Boundaries). Journalise chaque export réussi
+    dans `route_exports` (historique du compte, FR-25/Epic 3) : la ligne
+    n'est insérée qu'une fois le GPX construit avec succès, jamais pour un
+    export en échec."""
+    model = get_owned_or_404(db, RouteModel, route_id, account.id)
+
+    if model.statut != STATUT_ROUTE:
+        raise AppError(422, "PARCOURS_NON_PRET", "Seul un parcours calculé avec succès peut être exporté.", {})
+
+    geometrie = tuple(Coordinate(lat=p.lat, lon=p.lon) for p in _geometrie_en_points(db, model.id))
+    points_bruts = model.points.get("input", []) if model.points else []
+    points_entree = tuple(Coordinate(lat=point["lat"], lon=point["lon"]) for point in points_bruts)
+    # Accès défensif (même patron que `_metriques_response_depuis_json`) :
+    # un parcours `routed` calculé avant la story 2.5 (détail) a un `metrics`
+    # JSONB sans clé `"profil"` (voire `metrics` lui-même `None`, cf.
+    # `test_reouverture_dun_ancien_parcours_sans_revetements_ni_profil...`).
+    profil_brut = (model.metrics or {}).get("profil") or []
+    profil = tuple(
+        PointProfil(distance_m=point["distance_m"], elevation_m=point["elevation_m"]) for point in profil_brut
+    )
+    if len(profil) != len(geometrie):
+        # Le GPX doit porter l'élévation sur tout le tracé (Boundaries
+        # "Always" déjà actées du spec) : un profil manquant/incomplet ne
+        # peut structurellement pas la satisfaire -- traité comme "pas
+        # encore prêt", pas comme une erreur serveur (jamais de 500 non
+        # documenté ici).
+        raise AppError(
+            422,
+            "PARCOURS_NON_PRET",
+            "Ce parcours a été calculé avant le suivi altimétrique détaillé et ne peut pas encore être exporté.",
+            {},
+        )
+    gpx = construire_gpx(model.nom, points_entree, geometrie, profil)
+
+    db.add(RouteExport(route_id=model.id, account_id=account.id))
+    db.commit()
+
+    return Response(
+        content=gpx,
+        media_type="application/gpx+xml",
+        headers={"Content-Disposition": f'attachment; filename="{_nom_fichier_gpx(model.nom)}"'},
+    )
 
 
 @router.get(

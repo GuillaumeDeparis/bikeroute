@@ -1,10 +1,17 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { Atelier } from './Atelier'
 import { inverserPoints, type PointAtelier } from './Atelier.inversion'
-import { ApiError, calculerParcours, enregistrerParcours, rechercherAdresse, type ResultatParcours } from '../api/client'
+import {
+  ApiError,
+  calculerParcours,
+  enregistrerParcours,
+  exporterParcours,
+  rechercherAdresse,
+  type ResultatParcours,
+} from '../api/client'
 
 // `react-leaflet`/Leaflet ont besoin d'un vrai DOM avec dimensions (taille de
 // tuiles, événements souris bas niveau, ...) que jsdom ne fournit pas
@@ -63,7 +70,13 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('../api/client', async () => {
   const reel = await vi.importActual<typeof import('../api/client')>('../api/client')
-  return { ...reel, calculerParcours: vi.fn(), rechercherAdresse: vi.fn(), enregistrerParcours: vi.fn() }
+  return {
+    ...reel,
+    calculerParcours: vi.fn(),
+    rechercherAdresse: vi.fn(),
+    enregistrerParcours: vi.fn(),
+    exporterParcours: vi.fn(),
+  }
 })
 
 function cliquerCarte(lat: number, lon: number) {
@@ -94,6 +107,7 @@ afterEach(() => {
   vi.mocked(calculerParcours).mockReset()
   vi.mocked(rechercherAdresse).mockReset()
   vi.mocked(enregistrerParcours).mockReset()
+  vi.mocked(exporterParcours).mockReset()
   dernierGestionnaireClic = undefined
   gestionnairesDrag.clear()
 })
@@ -1880,5 +1894,139 @@ describe('Atelier — réouverture d’un parcours enregistré (spec-2-6)', () =
     expect(items[1]).toHaveTextContent('Point de passage 1')
     expect(items[2]).toHaveTextContent('Destination')
     expect(screen.getByText('Multi-étapes')).toBeInTheDocument()
+  })
+})
+
+describe('Atelier — Export GPX (spec-2-7)', () => {
+  // jsdom ne fournit pas `URL.createObjectURL`/`URL.revokeObjectURL` --
+  // stubbés ici (pas dans `src/test/setup.ts`, propre à ce fichier) pour
+  // que le déclenchement du téléchargement (`lancerExport`) puisse
+  // s'exécuter sans lever. `HTMLAnchorElement.prototype.click` mocké aussi :
+  // jsdom tente une vraie navigation sur un `<a href="blob:...">` cliqué
+  // (bruit "Not implemented: navigation" en console, sans rapport avec ce
+  // qui est testé ici).
+  beforeEach(() => {
+    URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    URL.revokeObjectURL = vi.fn()
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it("aucun bouton « Exporter » tant qu'aucun tracé n'est calculé", async () => {
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    cliquerCarte(45.75, 4.85)
+
+    expect(screen.queryByRole('button', { name: 'Exporter' })).not.toBeInTheDocument()
+  })
+
+  it('parcours routé : exporte avec succès, déclenche le téléchargement et affiche la confirmation', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    const gpxBlob = new Blob(['<gpx></gpx>'], { type: 'application/gpx+xml' })
+    vi.mocked(exporterParcours).mockResolvedValue({ blob: gpxBlob, nomFichier: 'boucle-du-dimanche.gpx' })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    const exporter = await screen.findByRole('button', { name: 'Exporter' })
+    expect(exporter).not.toBeDisabled()
+    await user.click(exporter)
+
+    await waitFor(() => expect(exporterParcours).toHaveBeenCalledWith('r1'))
+    expect(URL.createObjectURL).toHaveBeenCalledWith(gpxBlob)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+    expect(await screen.findByText('Fichier « boucle-du-dimanche.gpx » exporté.')).toBeInTheDocument()
+    // Bouton « Exporter » remplacé par la confirmation tant qu'elle est affichée.
+    expect(screen.queryByRole('button', { name: 'Exporter' })).not.toBeInTheDocument()
+  })
+
+  it('« Revenir » referme la confirmation sans toucher au parcours', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(exporterParcours).mockResolvedValue({
+      blob: new Blob(['<gpx></gpx>']),
+      nomFichier: 'parcours.gpx',
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Exporter' }))
+    await screen.findByText('Fichier « parcours.gpx » exporté.')
+
+    await user.click(screen.getByRole('button', { name: 'Revenir' }))
+
+    expect(screen.queryByText('Fichier « parcours.gpx » exporté.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Exporter' })).toBeInTheDocument()
+    expect(await screen.findByTestId('trace')).toBeInTheDocument()
+  })
+
+  it('« Nouveau parcours » depuis la confirmation d’export réinitialise entièrement le plan', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(exporterParcours).mockResolvedValue({
+      blob: new Blob(['<gpx></gpx>']),
+      nomFichier: 'parcours.gpx',
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Exporter' }))
+    await screen.findByText('Fichier « parcours.gpx » exporté.')
+
+    await user.click(screen.getByRole('button', { name: 'Nouveau parcours' }))
+
+    expect(screen.queryByText('Fichier « parcours.gpx » exporté.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Exporter' })).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+  })
+
+  it('échec réseau/serveur : le parcours reste affiché et Réessayer est proposé (aucun export partiel présenté comme réussi)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(exporterParcours).mockRejectedValue(new Error('panne réseau'))
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    const exporter = await screen.findByRole('button', { name: 'Exporter' })
+    await user.click(exporter)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Une erreur inattendue s'est produite. Réessayez plus tard.")
+    expect(screen.queryByText(/exporté\.$/)).not.toBeInTheDocument()
+    // Le tracé/parcours reste affiché, réessayer reste possible.
+    expect(await screen.findByTestId('trace')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Exporter' })).not.toBeDisabled()
+  })
+
+  it('parcours non routé : aucun bouton « Exporter » (rien à exporter, cf. Boundaries)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({
+      id: 'r-non-route',
+      statut: 'non_route',
+      geometrie: [],
+      pointsNonRoutes: [{ lat: 45.76, lon: 4.86 }],
+      fournisseur: 'valhalla',
+      versionFournisseur: '3.8.3',
+      createdAt: '2026-08-23T00:00:00Z',
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: 'Exporter' })).not.toBeInTheDocument()
   })
 })

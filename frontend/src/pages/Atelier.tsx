@@ -9,6 +9,7 @@ import {
   ApiError,
   calculerParcours,
   enregistrerParcours,
+  exporterParcours,
   rechercherAdresse,
   type Metriques,
   type PointCoordonnee,
@@ -479,6 +480,14 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
   const [erreurEnregistrement, setErreurEnregistrement] = useState<string | undefined>(undefined)
   const [confirmationEnregistrement, setConfirmationEnregistrement] = useState(false)
 
+  // Export GPX (spec-2-7) : `parcoursId` sert aussi de cible ici (même
+  // garde que « Enregistrer », actif dès qu'un parcours routé est persisté).
+  // `confirmationExport` porte le nom de fichier confirmé -- distinct d'un
+  // simple booléen pour pouvoir l'afficher sans le redemander au backend.
+  const [exportEnCours, setExportEnCours] = useState(false)
+  const [erreurExport, setErreurExport] = useState<string | undefined>(undefined)
+  const [confirmationExport, setConfirmationExport] = useState<{ nomFichier: string } | undefined>(undefined)
+
   const [recherche, setRecherche] = useState('')
   const [rechercheEnCours, setRechercheEnCours] = useState(false)
   const [erreurRecherche, setErreurRecherche] = useState<string | undefined>(undefined)
@@ -763,6 +772,12 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
     setEnregistrementEnCours(false)
     setErreurEnregistrement(undefined)
     setConfirmationEnregistrement(false)
+    // Repart aussi à vide côté export (spec-2-7) : plus aucun parcours
+    // persisté à exporter une fois le plan réinitialisé -- utilisé par
+    // l'action « Nouveau parcours » de la confirmation d'export elle-même.
+    setExportEnCours(false)
+    setErreurExport(undefined)
+    setConfirmationExport(undefined)
   }
 
   // Inversion du sens de parcours (spec-2-4) : Boucle et Aller simple
@@ -809,6 +824,8 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
       setErreurCalcul(undefined)
       setCalculEnCours(false)
       setParcoursId(undefined)
+      setConfirmationExport(undefined)
+      setErreurExport(undefined)
       return
     }
     if (ignorerPremierCalculRef.current) {
@@ -830,6 +847,10 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
     setParcoursId(undefined)
     setConfirmationEnregistrement(false)
     setErreurEnregistrement(undefined)
+    // Même raisonnement côté export (spec-2-7) : une confirmation/erreur
+    // d'export affichée avant cette édition ne décrit plus le tracé courant.
+    setConfirmationExport(undefined)
+    setErreurExport(undefined)
     const aEnvoyer = pointsCalcul
     let annule = false
     // Un point posé de nouveau (ou le démontage) avant la fin de ce calcul
@@ -983,6 +1004,45 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
       )
     } finally {
       setEnregistrementEnCours(false)
+    }
+  }
+
+  // Export GPX (spec-2-7) : `POST /api/routes/{id}/export` relit le tracé/le
+  // profil déjà persistés, ne recalcule jamais rien -- même garde que
+  // `soumettreEnregistrement` ci-dessus (`parcoursId` défini). Le
+  // téléchargement est déclenché ici, côté client, via un lien `<a
+  // download>` temporaire : c'est le seul mécanisme fiable pour faire
+  // télécharger un `Blob` déjà en mémoire sans navigation ni requête réseau
+  // supplémentaire.
+  async function lancerExport() {
+    if (!parcoursId || exportEnCours) {
+      return
+    }
+    setExportEnCours(true)
+    setErreurExport(undefined)
+    try {
+      const { blob, nomFichier } = await exporterParcours(parcoursId)
+      const url = URL.createObjectURL(blob)
+      const lien = document.createElement('a')
+      lien.href = url
+      lien.download = nomFichier
+      document.body.appendChild(lien)
+      lien.click()
+      document.body.removeChild(lien)
+      URL.revokeObjectURL(url)
+      setConfirmationExport({ nomFichier })
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionExpiree?.()
+        return
+      }
+      // Aucun téléchargement déclenché, le parcours reste intact (cf.
+      // matrice I/O : "Réessayer proposé, formulaire non perdu").
+      setErreurExport(
+        error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
+      )
+    } finally {
+      setExportEnCours(false)
     }
   }
 
@@ -1279,6 +1339,50 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                   {enregistrementEnCours ? 'Enregistrement…' : 'Enregistrer'}
                 </button>
               </form>
+            )}
+          </div>
+        )}
+
+        {/* Export GPX (spec-2-7) : visible dès qu'un tracé est affiché,
+            actif dès `parcoursId` défini -- même garde que « Enregistrer »
+            ci-dessus, un GPX se génère depuis un parcours persisté. Aucun
+            formulaire (contrairement au Save form) : l'export n'a besoin
+            d'aucune saisie, un clic suffit à déclencher le téléchargement. */}
+        {trace.length > 0 && (
+          <div className="atelier__export-zone">
+            {!confirmationExport && (
+              <button
+                type="button"
+                className="atelier__exporter"
+                onClick={lancerExport}
+                disabled={exportEnCours || parcoursId === undefined}
+              >
+                {exportEnCours ? 'Export…' : 'Exporter'}
+              </button>
+            )}
+
+            {erreurExport && (
+              <p role="alert" className="atelier__erreur">
+                {erreurExport}
+              </p>
+            )}
+
+            {confirmationExport && (
+              <div className="atelier__confirmation-export">
+                <p role="status" className="atelier__confirmation">
+                  Fichier « {confirmationExport.nomFichier} » exporté.
+                </p>
+                <div className="atelier__confirmation-export-actions">
+                  {/* « Revenir » referme simplement la confirmation, sans
+                      toucher au tracé/aux persistances (AC2 de la spec). */}
+                  <button type="button" onClick={() => setConfirmationExport(undefined)}>
+                    Revenir
+                  </button>
+                  <button type="button" onClick={reinitialiserPoints}>
+                    Nouveau parcours
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}
