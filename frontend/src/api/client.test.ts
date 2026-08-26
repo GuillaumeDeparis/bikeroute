@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { calculerParcours, rechercherAdresse } from './client'
+import { calculerParcours, enregistrerParcours, listerParcours, obtenirParcours, rechercherAdresse } from './client'
 
 // `Atelier.test.tsx` mocke tout `../api/client` : le mapping snake_case
 // (réponse backend) -> camelCase (`ResultatParcours`/`ResultatAdresse`) n'y
@@ -152,6 +152,244 @@ describe('calculerParcours — mapping snake_case -> camelCase', () => {
 
     const [, init] = fetchMock.mock.calls[0]
     expect(init.signal).toBe(controleur.signal)
+  })
+})
+
+// spec-2-6 : `enregistrerParcours`/`listerParcours`/`obtenirParcours` ne sont
+// exercées nulle part ailleurs contre un vrai `fetch` stubbé (`Atelier.test.tsx`/
+// `MesParcours.test.tsx` mockent tout `../api/client`) -- même préoccupation
+// que `calculerParcours` ci-dessus (revue de code post-implémentation).
+describe('enregistrerParcours — PATCH /api/routes/{id}, mapping snake_case -> camelCase', () => {
+  it('envoie nom/note/étiquettes et mappe la réponse champ par champ', async () => {
+    const fetchMock = stubFetch(200, {
+      id: 'route-id-789',
+      statut: 'routed',
+      geometry: [
+        { lat: 45.0, lon: 5.0 },
+        { lat: 45.005, lon: 5.005 },
+      ],
+      unrouted_points: [],
+      provider: 'valhalla',
+      provider_version: '3.8.3',
+      created_at: '2026-08-23T00:00:00Z',
+      metriques: null,
+      // Valeurs distinctes exprès (revue de code post-implémentation) : un
+      // swap `nom`/`note` (deux `string`, indétectable par le typage) ou un
+      // `points`/`geometry` mélangés romprait ces assertions.
+      nom: 'Boucle du dimanche',
+      note: 'Belle vue au sommet',
+      etiquettes: ['gravel', 'weekend'],
+      points: [
+        { lat: 45.1, lon: 5.1 },
+        { lat: 45.2, lon: 5.2 },
+      ],
+    })
+
+    const resultat = await enregistrerParcours('route-id-789', {
+      nom: 'Boucle du dimanche',
+      note: 'Belle vue au sommet',
+      etiquettes: ['gravel', 'weekend'],
+    })
+
+    expect(resultat.nom).toBe('Boucle du dimanche')
+    expect(resultat.note).toBe('Belle vue au sommet')
+    expect(resultat.etiquettes).toEqual(['gravel', 'weekend'])
+    // Distinct de `geometrie` ci-dessous : un mapping inversé
+    // `points`/`geometry` passerait inaperçu sinon (tous deux des tableaux
+    // `PointCoordonnee[]`, indétectable par le typage).
+    expect(resultat.points).toEqual([
+      { lat: 45.1, lon: 5.1 },
+      { lat: 45.2, lon: 5.2 },
+    ])
+    expect(resultat.geometrie).toEqual([
+      { lat: 45.0, lon: 5.0 },
+      { lat: 45.005, lon: 5.005 },
+    ])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/routes/route-id-789')
+    expect(init).toMatchObject({ method: 'PATCH', credentials: 'include' })
+    expect(JSON.parse(init.body as string)).toEqual({
+      nom: 'Boucle du dimanche',
+      note: 'Belle vue au sommet',
+      etiquettes: ['gravel', 'weekend'],
+    })
+  })
+
+  it('envoie `etiquettes: []` par défaut quand `payload.etiquettes` est omis', async () => {
+    const fetchMock = stubFetch(200, {
+      id: 'r',
+      statut: 'routed',
+      geometry: [],
+      unrouted_points: [],
+      provider: 'valhalla',
+      provider_version: '3.8.3',
+      created_at: '2026-08-23T00:00:00Z',
+      metriques: null,
+      nom: 'Sans étiquette',
+      etiquettes: [],
+      points: [],
+    })
+
+    await enregistrerParcours('r', { nom: 'Sans étiquette' })
+
+    const [, init] = fetchMock.mock.calls[0]
+    expect(JSON.parse(init.body as string)).toEqual({ nom: 'Sans étiquette', note: undefined, etiquettes: [] })
+  })
+
+  it('propage une réponse en échec via `ApiError`', async () => {
+    stubFetch(422, {
+      code: 'PARAMETRES_INVALIDES',
+      message: 'Le nom du parcours est requis pour l’enregistrer.',
+      details: {},
+      correlationId: 'corr-1',
+    })
+
+    await expect(enregistrerParcours('r', { nom: '' })).rejects.toMatchObject({
+      status: 422,
+      code: 'PARAMETRES_INVALIDES',
+    })
+  })
+})
+
+describe('listerParcours — mapping de la réponse `GET /api/routes`', () => {
+  it('mappe chaque ligne champ par champ, sans confondre distance/dénivelé/durée', async () => {
+    const fetchMock = stubFetch(200, [
+      {
+        id: 'p1',
+        nom: 'Boucle du dimanche',
+        note: 'Belle vue au sommet',
+        etiquettes: ['gravel', 'weekend'],
+        // Valeurs distinctes exprès : un swap `distance_m`/
+        // `denivele_positif_m`/`duree_s` (trois `number`, indétectable par
+        // le typage) romprait ces assertions.
+        distance_m: 12345,
+        denivele_positif_m: 210,
+        duree_s: 3620,
+        difficulte: 'modere',
+        created_at: '2026-08-23T00:00:00Z',
+      },
+    ])
+
+    const parcours = await listerParcours()
+
+    expect(parcours).toEqual([
+      {
+        id: 'p1',
+        nom: 'Boucle du dimanche',
+        note: 'Belle vue au sommet',
+        etiquettes: ['gravel', 'weekend'],
+        distanceM: 12345,
+        denivelePositifM: 210,
+        dureeS: 3620,
+        difficulte: 'modere',
+        createdAt: '2026-08-23T00:00:00Z',
+      },
+    ])
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/routes')
+    expect(init).toMatchObject({ method: 'GET', credentials: 'include' })
+  })
+
+  it('métriques absentes (parcours calculé avant la story 2.5 socle) : mappe en `undefined`, sans lever', async () => {
+    stubFetch(200, [
+      {
+        id: 'p2',
+        nom: 'Ancien parcours',
+        note: null,
+        etiquettes: [],
+        distance_m: null,
+        denivele_positif_m: null,
+        duree_s: null,
+        difficulte: null,
+        created_at: '2026-08-23T00:00:00Z',
+      },
+    ])
+
+    const parcours = await listerParcours()
+
+    expect(parcours[0]).toEqual({
+      id: 'p2',
+      nom: 'Ancien parcours',
+      note: undefined,
+      etiquettes: [],
+      distanceM: undefined,
+      denivelePositifM: undefined,
+      dureeS: undefined,
+      difficulte: undefined,
+      createdAt: '2026-08-23T00:00:00Z',
+    })
+  })
+
+  it('liste vide : renvoie `[]`', async () => {
+    stubFetch(200, [])
+
+    expect(await listerParcours()).toEqual([])
+  })
+})
+
+describe('obtenirParcours — GET /api/routes/{id}, mapping snake_case -> camelCase', () => {
+  it("mappe la réponse (réouverture) champ par champ, y compris 'points' bruts", async () => {
+    const fetchMock = stubFetch(200, {
+      id: 'route-id-999',
+      statut: 'routed',
+      geometry: [
+        { lat: 45.0, lon: 5.0 },
+        { lat: 45.005, lon: 5.005 },
+      ],
+      unrouted_points: [],
+      provider: 'valhalla',
+      provider_version: '3.8.3',
+      created_at: '2026-08-23T00:00:00Z',
+      metriques: {
+        version: '3',
+        distance_m: 100,
+        denivele_positif_m: 10,
+        denivele_negatif_m: 5,
+        duree_s: 60,
+        difficulte: 'facile',
+        revetements: { inconnu: 1 },
+        categories_routieres: { inconnu: 1 },
+        profil: [],
+        montees_significatives: [],
+      },
+      nom: 'Reprise',
+      note: null,
+      etiquettes: ['rapide'],
+      points: [
+        { lat: 45.1, lon: 5.1 },
+        { lat: 45.2, lon: 5.2 },
+        { lat: 45.1, lon: 5.1 },
+      ],
+    })
+
+    const resultat = await obtenirParcours('route-id-999')
+
+    expect(resultat.nom).toBe('Reprise')
+    expect(resultat.note).toBeUndefined()
+    expect(resultat.etiquettes).toEqual(['rapide'])
+    expect(resultat.points).toEqual([
+      { lat: 45.1, lon: 5.1 },
+      { lat: 45.2, lon: 5.2 },
+      { lat: 45.1, lon: 5.1 },
+    ])
+    expect(resultat.metriques?.version).toBe('3')
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/routes/route-id-999')
+    expect(init).toMatchObject({ method: 'GET', credentials: 'include' })
+  })
+
+  it('propage un id inconnu via `ApiError` (404)', async () => {
+    stubFetch(404, {
+      code: 'RESSOURCE_INTROUVABLE',
+      message: 'Ressource introuvable.',
+      details: {},
+      correlationId: 'corr-2',
+    })
+
+    await expect(obtenirParcours('inconnu')).rejects.toMatchObject({ status: 404, code: 'RESSOURCE_INTROUVABLE' })
   })
 })
 

@@ -47,6 +47,22 @@
   background: #23583e;
 }
 
+/* Lien vers « Mes parcours » (spec-2-6) : secondaire au CTA Atelier
+   ci-dessus, jamais mis en avant de la même façon. */
+.accueil__lien-secondaire {
+  border: none;
+  background: none;
+  color: #2a6f4d;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.accueil__lien-secondaire:hover,
+.accueil__lien-secondaire:focus-visible {
+  text-decoration: underline;
+}
+
 /* Skeleton pendant la résolution de session : mêmes proportions que l'état
    "aucun parcours" pour éviter tout déplacement visible à l'arrivée du
    contenu réel. */

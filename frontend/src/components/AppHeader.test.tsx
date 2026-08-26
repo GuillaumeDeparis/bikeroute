@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AppHeader } from './AppHeader'
 import { logout } from '../api/client'
@@ -74,5 +74,22 @@ describe('AppHeader — Account menu', () => {
     await user.click(screen.getByRole('button', { name: 'alice' }))
 
     await waitFor(() => expect(screen.getByRole('menuitem', { name: /Mes parcours/ })).toHaveFocus())
+  })
+
+  it("« Mes parcours » (story 2.6) ferme le menu et notifie le parent, sans mention « Bientôt disponible »", async () => {
+    const user = userEvent.setup()
+    const onOuvrirMesParcours = vi.fn()
+
+    render(<AppHeader identifiant="alice" onDeconnexion={vi.fn()} onOuvrirMesParcours={onOuvrirMesParcours} />)
+    await user.click(screen.getByRole('button', { name: 'alice' }))
+    // "Exporter mes données" reste inerte (hors scope de cette story) --
+    // seule l'entrée "Mes parcours" perd sa mention "Bientôt disponible".
+    const itemMesParcours = screen.getByRole('menuitem', { name: 'Mes parcours' })
+    expect(within(itemMesParcours).queryByText('Bientôt disponible')).not.toBeInTheDocument()
+
+    await user.click(itemMesParcours)
+
+    expect(onOuvrirMesParcours).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 })

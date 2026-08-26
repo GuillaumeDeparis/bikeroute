@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from geoalchemy2 import Geometry
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -65,3 +65,11 @@ class Route(Base):
     # méthode qui a produit `metrics`, même si elle change ensuite.
     metrics_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    # Marqueur de bibliothèque (spec-2-6, Intent) : un parcours est "dans ma
+    # bibliothèque" ssi `nom` est non vide -- `PATCH /api/routes/{id}` sur
+    # cette même ligne déjà calculée, jamais un nouveau statut de cycle de
+    # vie ni une nouvelle table. `note`/`etiquettes` restent facultatifs même
+    # une fois `nom` posé.
+    nom: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    etiquettes: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)

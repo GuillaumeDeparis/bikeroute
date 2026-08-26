@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { Atelier } from './Atelier'
 import { inverserPoints, type PointAtelier } from './Atelier.inversion'
-import { ApiError, calculerParcours, rechercherAdresse, type ResultatParcours } from '../api/client'
+import { ApiError, calculerParcours, enregistrerParcours, rechercherAdresse, type ResultatParcours } from '../api/client'
 
 // `react-leaflet`/Leaflet ont besoin d'un vrai DOM avec dimensions (taille de
 // tuiles, événements souris bas niveau, ...) que jsdom ne fournit pas
@@ -63,7 +63,7 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('../api/client', async () => {
   const reel = await vi.importActual<typeof import('../api/client')>('../api/client')
-  return { ...reel, calculerParcours: vi.fn(), rechercherAdresse: vi.fn() }
+  return { ...reel, calculerParcours: vi.fn(), rechercherAdresse: vi.fn(), enregistrerParcours: vi.fn() }
 })
 
 function cliquerCarte(lat: number, lon: number) {
@@ -93,6 +93,7 @@ afterEach(() => {
   cleanup()
   vi.mocked(calculerParcours).mockReset()
   vi.mocked(rechercherAdresse).mockReset()
+  vi.mocked(enregistrerParcours).mockReset()
   dernierGestionnaireClic = undefined
   gestionnairesDrag.clear()
 })
@@ -1602,5 +1603,282 @@ describe('Atelier — numérotation des points de passage', () => {
     const marqueurs = screen.getAllByTestId('marqueur')
     expect(within(marqueurs[1]).getByTestId('marqueur-numero')).toHaveTextContent('2')
     expect(within(marqueurs[2]).getByTestId('marqueur-numero')).toHaveTextContent('1')
+  })
+})
+
+describe('Atelier — Save form (spec-2-6, UX-DR22)', () => {
+  it("aucun bouton « Enregistrer » tant qu'aucun tracé n'est calculé", async () => {
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+
+    cliquerCarte(45.75, 4.85) // départ seul : pas encore de topologie/tracé
+
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
+  })
+
+  it('parcours non routé : aucun bouton « Enregistrer » (rien à enregistrer, cf. Boundaries)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue({
+      id: 'r-non-route',
+      statut: 'non_route',
+      geometrie: [],
+      pointsNonRoutes: [{ lat: 45.76, lon: 4.86 }],
+      fournisseur: 'valhalla',
+      versionFournisseur: '3.8.3',
+      createdAt: '2026-08-23T00:00:00Z',
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
+  })
+
+  it('parcours routé : ouvre le Save form, enregistre avec succès et affiche une confirmation', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(enregistrerParcours).mockResolvedValue({
+      ...RESULTAT_ROUTE_DEFAUT,
+      nom: 'Boucle du dimanche',
+      note: 'Belle vue',
+      etiquettes: ['gravel'],
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    const ouvrir = await screen.findByRole('button', { name: 'Enregistrer' })
+    expect(ouvrir).not.toBeDisabled()
+    await user.click(ouvrir)
+
+    await user.type(screen.getByLabelText('Nom'), 'Boucle du dimanche')
+    await user.type(screen.getByLabelText('Note (facultative)'), 'Belle vue')
+    await user.type(screen.getByLabelText('Étiquettes (séparées par des virgules)'), 'gravel, weekend ')
+
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    await waitFor(() =>
+      expect(enregistrerParcours).toHaveBeenCalledWith('r1', {
+        nom: 'Boucle du dimanche',
+        note: 'Belle vue',
+        etiquettes: ['gravel', 'weekend'],
+      }),
+    )
+    expect(await screen.findByText('Parcours enregistré.')).toBeInTheDocument()
+    // Les champs restent affichés tels quels après succès (UX-DR22).
+    expect(screen.getByLabelText('Nom')).toHaveValue('Boucle du dimanche')
+  })
+
+  it('échec réseau/serveur : nom/note/étiquettes conservés, un message générique invite à réessayer', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(enregistrerParcours).mockRejectedValue(new Error('panne réseau'))
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    await user.click(await screen.findByRole('button', { name: 'Enregistrer' }))
+    await user.type(screen.getByLabelText('Nom'), 'Mon parcours')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent("Une erreur inattendue s'est produite. Réessayez plus tard.")
+    expect(screen.getByLabelText('Nom')).toHaveValue('Mon parcours')
+    expect(screen.queryByText('Parcours enregistré.')).not.toBeInTheDocument()
+  })
+
+  it('éditer le tracé après un enregistrement réussi efface la confirmation devenue obsolète (revue de code)', async () => {
+    const user = userEvent.setup()
+    let resoudreDeuxiemeCalcul: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce(RESULTAT_ROUTE_DEFAUT)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resoudreDeuxiemeCalcul = resolve
+          }),
+      )
+    vi.mocked(enregistrerParcours).mockResolvedValue({ ...RESULTAT_ROUTE_DEFAUT, nom: 'Mon parcours' })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    await user.click(await screen.findByRole('button', { name: 'Enregistrer' }))
+    await user.type(screen.getByLabelText('Nom'), 'Mon parcours')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByText('Parcours enregistré.')).toBeInTheDocument()
+
+    // Édition du tracé (glissé du marqueur) : relance un calcul -- sans le
+    // correctif, "Parcours enregistré." resterait affiché à côté d'un
+    // bouton "Enregistrer" redevenu désactivé, laissant croire à tort que
+    // la dernière édition est déjà sauvegardée.
+    glisserMarqueur(45.76, 4.86, 45.77, 4.87)
+
+    await waitFor(() => expect(screen.queryByText('Parcours enregistré.')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+
+    resoudreDeuxiemeCalcul?.({ ...RESULTAT_ROUTE_DEFAUT, id: 'r2' })
+  })
+
+  it('une édition après un calcul réussi désactive « Enregistrer » tant que le recalcul est en cours', async () => {
+    const user = userEvent.setup()
+    let resoudreDeuxiemeCalcul: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce(RESULTAT_ROUTE_DEFAUT)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resoudreDeuxiemeCalcul = resolve
+          }),
+      )
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+
+    const bouton = await screen.findByRole('button', { name: 'Enregistrer' })
+    expect(bouton).not.toBeDisabled()
+
+    // Édition (glissé du marqueur) : relance un calcul, invalide aussitôt
+    // le parcours enregistrable précédent (spec-2-6, Design Notes) alors
+    // même que l'ancien tracé reste affiché ("Mise à jour…").
+    glisserMarqueur(45.76, 4.86, 45.77, 4.87)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled())
+
+    resoudreDeuxiemeCalcul?.({ ...RESULTAT_ROUTE_DEFAUT, id: 'r2' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enregistrer' })).not.toBeDisabled())
+  })
+})
+
+describe('Atelier — réouverture d’un parcours enregistré (spec-2-6)', () => {
+  const PARCOURS_ALLER_SIMPLE: ResultatParcours = {
+    id: 'p-aller-simple',
+    statut: 'routed',
+    geometrie: [
+      { lat: 45.75, lon: 4.85 },
+      { lat: 45.76, lon: 4.86 },
+    ],
+    pointsNonRoutes: [],
+    fournisseur: 'valhalla',
+    versionFournisseur: '3.8.3',
+    createdAt: '2026-08-23T00:00:00Z',
+    metriques: METRIQUES_DEFAUT,
+    nom: 'Boucle du dimanche',
+    note: 'Belle vue au sommet',
+    etiquettes: ['gravel', 'weekend'],
+    points: [
+      { lat: 45.75, lon: 4.85 },
+      { lat: 45.76, lon: 4.86 },
+    ],
+  }
+
+  it("précharge points/tracé/métriques sans appeler le moteur de calcul (aucun nouvel appel Valhalla)", async () => {
+    render(<Atelier onRetourAccueil={vi.fn()} parcoursAOuvrir={PARCOURS_ALLER_SIMPLE} />)
+
+    expect(await screen.findByTestId('trace')).toHaveAttribute(
+      'data-points',
+      JSON.stringify([
+        [45.75, 4.85],
+        [45.76, 4.86],
+      ]),
+    )
+    const bulle = await screen.findByRole('region', { name: 'Métriques du parcours' })
+    expect(within(bulle).getByText('12,3 km')).toBeInTheDocument()
+    expect(screen.getAllByTestId('marqueur')).toHaveLength(2)
+
+    // Laisse le temps à un éventuel effet de calcul de se déclencher avant
+    // d'affirmer qu'il ne l'a jamais fait.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(calculerParcours).not.toHaveBeenCalled()
+  })
+
+  it('précharge le Save form (nom/note/étiquettes) et permet un ré-enregistrement immédiat', async () => {
+    const user = userEvent.setup()
+    vi.mocked(enregistrerParcours).mockResolvedValue(PARCOURS_ALLER_SIMPLE)
+
+    render(<Atelier onRetourAccueil={vi.fn()} parcoursAOuvrir={PARCOURS_ALLER_SIMPLE} />)
+
+    const ouvrir = await screen.findByRole('button', { name: 'Enregistrer' })
+    expect(ouvrir).not.toBeDisabled()
+    await user.click(ouvrir)
+
+    expect(screen.getByLabelText('Nom')).toHaveValue('Boucle du dimanche')
+    expect(screen.getByLabelText('Note (facultative)')).toHaveValue('Belle vue au sommet')
+    expect(screen.getByLabelText('Étiquettes (séparées par des virgules)')).toHaveValue('gravel, weekend')
+
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    await waitFor(() =>
+      expect(enregistrerParcours).toHaveBeenCalledWith('p-aller-simple', {
+        nom: 'Boucle du dimanche',
+        note: 'Belle vue au sommet',
+        etiquettes: ['gravel', 'weekend'],
+      }),
+    )
+  })
+
+  it('reconstruit une boucle (premier point == dernier) depuis les points bruts, sans afficher le point dupliqué', async () => {
+    const parcoursBoucle: ResultatParcours = {
+      ...PARCOURS_ALLER_SIMPLE,
+      id: 'p-boucle',
+      geometrie: [
+        { lat: 45.75, lon: 4.85 },
+        { lat: 45.76, lon: 4.86 },
+        { lat: 45.75, lon: 4.85 },
+      ],
+      points: [
+        { lat: 45.75, lon: 4.85 },
+        { lat: 45.76, lon: 4.86 },
+        { lat: 45.75, lon: 4.85 },
+      ],
+    }
+
+    render(<Atelier onRetourAccueil={vi.fn()} parcoursAOuvrir={parcoursBoucle} />)
+
+    await screen.findByTestId('trace')
+    // Le point de fermeture (identique au départ) n'est pas dupliqué dans
+    // la liste affichée -- deux marqueurs seulement (Départ + 1 Point de
+    // passage), pas trois.
+    expect(screen.getAllByTestId('marqueur')).toHaveLength(2)
+    const items = screen.getAllByRole('listitem')
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Point de passage 1')
+    expect(screen.getByText(/Topologie/)).toBeInTheDocument()
+    expect(screen.getByText('Boucle')).toBeInTheDocument()
+  })
+
+  it('reconstruit un multi-étapes (3+ points, premier != dernier) avec des points de passage intermédiaires', async () => {
+    const parcoursMultiEtapes: ResultatParcours = {
+      ...PARCOURS_ALLER_SIMPLE,
+      id: 'p-multi',
+      geometrie: [
+        { lat: 45.75, lon: 4.85 },
+        { lat: 45.76, lon: 4.86 },
+        { lat: 45.77, lon: 4.87 },
+      ],
+      points: [
+        { lat: 45.75, lon: 4.85 },
+        { lat: 45.76, lon: 4.86 },
+        { lat: 45.77, lon: 4.87 },
+      ],
+    }
+
+    render(<Atelier onRetourAccueil={vi.fn()} parcoursAOuvrir={parcoursMultiEtapes} />)
+
+    await screen.findByTestId('trace')
+    const items = screen.getAllByRole('listitem')
+    expect(items).toHaveLength(3)
+    expect(items[0]).toHaveTextContent('Départ')
+    expect(items[1]).toHaveTextContent('Point de passage 1')
+    expect(items[2]).toHaveTextContent('Destination')
+    expect(screen.getByText('Multi-étapes')).toBeInTheDocument()
   })
 })

@@ -192,6 +192,101 @@ export interface ResultatParcours {
   versionFournisseur: string
   createdAt: string
   metriques?: Metriques
+  /** Marqueur de bibliothèque (spec-2-6) : `undefined`/`[]` tant que le
+   * parcours n'a jamais été enregistré -- toujours absent sur le résultat de
+   * `calculerParcours` (jamais renseigné par `/calculate`). */
+  nom?: string
+  note?: string
+  // Optionnel côté type (pas seulement runtime, même patron que `profil`/
+  // `monteesSignificatives` de `Metriques` ci-dessus) : `mapResultatParcours`
+  // les défend déjà par `?? []`, un appelant qui construit lui-même un
+  // `ResultatParcours` (tests, fixtures) n'a donc pas à les répéter partout.
+  etiquettes?: string[]
+  /** Points d'entrée bruts (départ/passages/destination), tels que persistés
+   * -- utilisés uniquement pour reconstruire la topologie à la réouverture
+   * (spec-2-6, Design Notes) ; toujours vide sur le résultat de
+   * `calculerParcours` (l'appelant connaît déjà ses propres points), peuplé
+   * par `obtenirParcours`/`enregistrerParcours`. */
+  points?: PointCoordonnee[]
+}
+
+/** Forme brute (snake_case) de `ParcoursResponse` côté backend -- partagée
+ * par `calculerParcours`/`enregistrerParcours`/`obtenirParcours` pour ne pas
+ * dupliquer trois fois le mapping snake_case -> camelCase ci-dessous. */
+interface ParcoursReponseBrute {
+  id: string
+  statut: 'routed' | 'non_route'
+  geometry: PointCoordonnee[]
+  unrouted_points: PointCoordonnee[]
+  provider: string
+  provider_version: string
+  created_at: string
+  metriques: {
+    version: string
+    distance_m: number
+    denivele_positif_m: number
+    denivele_negatif_m: number
+    duree_s: number
+    difficulte: Difficulte
+    revetements: Record<string, number>
+    categories_routieres: Record<string, number>
+    // Optionnels côté type (pas seulement runtime, revue post-
+    // implémentation) : une réponse qui omettrait ces champs (dérive de
+    // contrat/déploiement) ne doit jamais faire échouer le mapping --
+    // défendu par `?? []` ci-dessous.
+    profil?: { distance_m: number; elevation_m: number }[]
+    montees_significatives?: { distance_m: number; denivele_m: number; pente_moyenne: number }[]
+  } | null
+  nom?: string | null
+  note?: string | null
+  etiquettes?: string[]
+  points?: PointCoordonnee[]
+}
+
+function mapMetriques(metriques: ParcoursReponseBrute['metriques']): Metriques | undefined {
+  if (!metriques) {
+    return undefined
+  }
+  return {
+    version: metriques.version,
+    distanceM: metriques.distance_m,
+    denivelePositifM: metriques.denivele_positif_m,
+    deniveleNegatifM: metriques.denivele_negatif_m,
+    dureeS: metriques.duree_s,
+    difficulte: metriques.difficulte,
+    revetements: metriques.revetements,
+    categoriesRoutieres: metriques.categories_routieres,
+    // `?? []` (revue post-implémentation) : une réponse qui omettrait
+    // ces champs (dérive de contrat/déploiement backend/frontend) ne
+    // doit jamais faire échouer tout le calcul de parcours avec un
+    // `TypeError` sur `.map(...)` d'`undefined`.
+    profil: (metriques.profil ?? []).map((point) => ({
+      distanceM: point.distance_m,
+      elevationM: point.elevation_m,
+    })),
+    monteesSignificatives: (metriques.montees_significatives ?? []).map((montee) => ({
+      distanceM: montee.distance_m,
+      deniveleM: montee.denivele_m,
+      penteMoyenne: montee.pente_moyenne,
+    })),
+  }
+}
+
+function mapResultatParcours(data: ParcoursReponseBrute): ResultatParcours {
+  return {
+    id: data.id,
+    statut: data.statut,
+    geometrie: data.geometry,
+    pointsNonRoutes: data.unrouted_points,
+    fournisseur: data.provider,
+    versionFournisseur: data.provider_version,
+    createdAt: data.created_at,
+    metriques: mapMetriques(data.metriques),
+    nom: data.nom ?? undefined,
+    note: data.note ?? undefined,
+    etiquettes: data.etiquettes ?? [],
+    points: data.points ?? [],
+  }
 }
 
 export interface OptionsRequete {
@@ -220,65 +315,89 @@ export async function calculerParcours(
   })
 
   if (response.status === 201) {
+    return mapResultatParcours((await response.json()) as ParcoursReponseBrute)
+  }
+
+  throw await toApiError(response)
+}
+
+export interface EnregistrerParcoursPayload {
+  nom: string
+  note?: string
+  etiquettes?: string[]
+}
+
+/** Pose un `nom` (marqueur de bibliothèque, spec-2-6) sur un parcours déjà
+ * calculé (`statut === 'routed'`) -- `PATCH` pur sur la ligne `routes`
+ * existante, ne recalcule jamais rien. */
+export async function enregistrerParcours(id: string, payload: EnregistrerParcoursPayload): Promise<ResultatParcours> {
+  const response = await fetch(`/api/routes/${id}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nom: payload.nom, note: payload.note, etiquettes: payload.etiquettes ?? [] }),
+  })
+
+  if (response.status === 200) {
+    return mapResultatParcours((await response.json()) as ParcoursReponseBrute)
+  }
+
+  throw await toApiError(response)
+}
+
+export interface ParcoursResume {
+  id: string
+  nom: string
+  note?: string
+  etiquettes: string[]
+  distanceM?: number
+  denivelePositifM?: number
+  dureeS?: number
+  difficulte?: Difficulte
+  createdAt: string
+}
+
+/** Liste « Mes parcours » (spec-2-6) : uniquement les parcours nommés du
+ * compte connecté, les plus récents d'abord -- jamais les parcours calculés
+ * mais non enregistrés (`nom` nul), qui restent des lignes orphelines. */
+export async function listerParcours(): Promise<ParcoursResume[]> {
+  const response = await fetch('/api/routes', { method: 'GET', credentials: 'include' })
+
+  if (response.status === 200) {
     const data = (await response.json()) as {
       id: string
-      statut: 'routed' | 'non_route'
-      geometry: PointCoordonnee[]
-      unrouted_points: PointCoordonnee[]
-      provider: string
-      provider_version: string
+      nom: string
+      note: string | null
+      etiquettes: string[]
+      distance_m: number | null
+      denivele_positif_m: number | null
+      duree_s: number | null
+      difficulte: Difficulte | null
       created_at: string
-      metriques: {
-        version: string
-        distance_m: number
-        denivele_positif_m: number
-        denivele_negatif_m: number
-        duree_s: number
-        difficulte: Difficulte
-        revetements: Record<string, number>
-        categories_routieres: Record<string, number>
-        // Optionnels côté type (pas seulement runtime, revue post-
-        // implémentation) : une réponse qui omettrait ces champs (dérive de
-        // contrat/déploiement) ne doit jamais faire échouer le mapping --
-        // défendu par `?? []` ci-dessous.
-        profil?: { distance_m: number; elevation_m: number }[]
-        montees_significatives?: { distance_m: number; denivele_m: number; pente_moyenne: number }[]
-      } | null
-    }
-    return {
-      id: data.id,
-      statut: data.statut,
-      geometrie: data.geometry,
-      pointsNonRoutes: data.unrouted_points,
-      fournisseur: data.provider,
-      versionFournisseur: data.provider_version,
-      createdAt: data.created_at,
-      metriques: data.metriques
-        ? {
-            version: data.metriques.version,
-            distanceM: data.metriques.distance_m,
-            denivelePositifM: data.metriques.denivele_positif_m,
-            deniveleNegatifM: data.metriques.denivele_negatif_m,
-            dureeS: data.metriques.duree_s,
-            difficulte: data.metriques.difficulte,
-            revetements: data.metriques.revetements,
-            categoriesRoutieres: data.metriques.categories_routieres,
-            // `?? []` (revue post-implémentation) : une réponse qui omettrait
-            // ces champs (dérive de contrat/déploiement backend/frontend) ne
-            // doit jamais faire échouer tout le calcul de parcours avec un
-            // `TypeError` sur `.map(...)` d'`undefined`.
-            profil: (data.metriques.profil ?? []).map((point) => ({
-              distanceM: point.distance_m,
-              elevationM: point.elevation_m,
-            })),
-            monteesSignificatives: (data.metriques.montees_significatives ?? []).map((montee) => ({
-              distanceM: montee.distance_m,
-              deniveleM: montee.denivele_m,
-              penteMoyenne: montee.pente_moyenne,
-            })),
-          }
-        : undefined,
-    }
+    }[]
+    return data.map((ligne) => ({
+      id: ligne.id,
+      nom: ligne.nom,
+      note: ligne.note ?? undefined,
+      etiquettes: ligne.etiquettes ?? [],
+      distanceM: ligne.distance_m ?? undefined,
+      denivelePositifM: ligne.denivele_positif_m ?? undefined,
+      dureeS: ligne.duree_s ?? undefined,
+      difficulte: ligne.difficulte ?? undefined,
+      createdAt: ligne.created_at,
+    }))
+  }
+
+  throw await toApiError(response)
+}
+
+/** Réouverture d'un parcours enregistré (spec-2-6) : recharge points/tracé/
+ * métriques déjà persistés, aucun nouvel appel au moteur de routage. */
+export async function obtenirParcours(id: string): Promise<ResultatParcours> {
+  const response = await fetch(`/api/routes/${id}`, { method: 'GET', credentials: 'include' })
+
+  if (response.status === 200) {
+    return mapResultatParcours((await response.json()) as ParcoursReponseBrute)
   }
 
   throw await toApiError(response)

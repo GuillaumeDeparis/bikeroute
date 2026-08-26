@@ -5,13 +5,17 @@ import './AppHeader.css'
 interface AppHeaderProps {
   identifiant: string
   onDeconnexion: () => void
+  /** Optionnel (pas requis par tous les appelants historiques/tests) : sans
+   * lui, l'entrée "Mes parcours" ferme simplement le menu au clic. */
+  onOuvrirMesParcours?: () => void
 }
 
 // Marque + Account menu complet (Mes parcours / Exporter mes données /
-// Déconnexion). Les deux premières entrées restent inertes : elles n'ont
-// rien à pointer avant Epic 2/5, mais doivent être visibles (cf. AC menu
-// complet de spec-1-4) plutôt qu'omises ou menant à une route inexistante.
-export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
+// Déconnexion). "Mes parcours" est fonctionnelle depuis la story 2.6 ;
+// "Exporter mes données" reste inerte : elle n'a rien à pointer avant
+// l'Epic 5, mais doit rester visible (cf. AC menu complet de spec-1-4)
+// plutôt qu'omise ou menant à une route inexistante.
+export function AppHeader({ identifiant, onDeconnexion, onOuvrirMesParcours }: AppHeaderProps) {
   const [menuOuvert, setMenuOuvert] = useState(false)
   const [deconnexionEnCours, setDeconnexionEnCours] = useState(false)
   const [erreur, setErreur] = useState<string | undefined>(undefined)
@@ -107,12 +111,12 @@ export function AppHeader({ identifiant, onDeconnexion }: AppHeaderProps) {
               ref={premierItemRef}
               type="button"
               role="menuitem"
-              className="app-header__item-inerte"
-              aria-disabled="true"
-              title="Bientôt disponible"
+              onClick={() => {
+                setMenuOuvert(false)
+                onOuvrirMesParcours?.()
+              }}
             >
-              <span>Mes parcours</span>
-              <span className="app-header__note">Bientôt disponible</span>
+              Mes parcours
             </button>
             <button
               type="button"

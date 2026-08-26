@@ -107,3 +107,37 @@
 ## Deferred from: code review of spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé (2026-08-25)
 
 - Durcir la validation de la structure historique de la réponse Valhalla `/route` : types de `body`/`trip`/`legs`, nombre de legs attendu, géométries vides ou discontinues, afin de traduire toute réponse malformée en `RoutingProviderError` plutôt qu'en erreur 500 brute.
+
+## Deferred from: code review of spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md (2026-08-26)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Aucun moyen de retirer un parcours de la bibliothèque (pas d'endpoint "unsave"/suppression, pas d'action UI correspondante).
+  evidence: Aucune AC ne l'exige, mais un utilisateur qui enregistre par erreur ou veut nettoyer sa bibliothèque n'a aucun recours -- signalé par la revue blind-hunter comme une lacune fonctionnelle probable à court terme.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: `GET /api/routes` n'a ni pagination, ni filtre/recherche par nom ou étiquette, malgré des étiquettes désormais persistées.
+  evidence: Non requis par les AC (bibliothèque personnelle, échelle V1 réduite), mais deviendra nécessaire dès qu'un compte accumule des dizaines de parcours enregistrés.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Pas d'index dédié pour la requête `WHERE account_id = ? AND nom IS NOT NULL ORDER BY created_at DESC` de « Mes parcours » ; pas de contrainte `CHECK` DB interdisant un `nom` vide/blanc (seul le `PATCH` applicatif le garantit aujourd'hui).
+  evidence: `account_id` est déjà indexé, donc acceptable à l'échelle V1 ; mais la convention du projet (migration 0004) encode habituellement ce type d'invariant au niveau DB en défense en profondeur, pas seulement côté application.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: « Mes parcours » trie par `created_at` (date de calcul du tracé), pas par date d'enregistrement -- aucune colonne `enregistre_at`/`updated_at` n'existe, et la date n'est de toute façon jamais affichée dans la liste.
+  evidence: Un parcours calculé il y a longtemps puis nommé aujourd'hui apparaîtra "ancien" dans le tri plutôt qu'en tête comme "tout juste enregistré" -- surprenant pour l'utilisateur, mais aucune AC ne spécifie de sémantique de tri et le cas (calcul puis enregistrement immédiat) reste dominant en usage normal.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Pas de déduplication/normalisation des étiquettes saisies (ex. "gravel, Gravel, gravel" persiste tel quel, avec doublon et casse incohérente) ; pas de contrôle d'unicité sur le nom d'un parcours.
+  evidence: Aucune AC ne l'exige ; qualité de donnée cosmétique pour une bibliothèque personnelle, mais deux revues indépendantes (blind-hunter) l'ont relevé.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Le câblage de réouverture bout-en-bout (`App.tsx` : transition vers la vue `atelier` avec `parcoursAOuvrir`, et le `key={vue.parcoursAOuvrir?.id ?? 'nouveau'}` forçant le remontage) n'est exercé par aucun test passant par les vraies transitions d'état d'`App` -- seuls des rendus directs de `<Atelier parcoursAOuvrir=.../>` et un `onOuvrirParcours` mocké sont testés.
+  evidence: Revue verification-gap : retirer ou casser le `key` compile et ne fait échouer aucun test aujourd'hui. Risque réel actuellement faible (le graphe d'appel actuel ne permet pas de rouvrir deux parcours différents sans redémonter `Atelier` via le changement de vue `mes-parcours`), mais mérite un test d'intégration `App.test.tsx` dédié pour se prémunir d'une régression future.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Un `nom` envoyé explicitement à `null`, ou dépassant `max_length` (nom/note/étiquettes), renvoie le code générique `CHAMP_REQUIS` (handler Pydantic global) plutôt que `PARAMETRES_INVALIDES` -- seuls les cas "vide"/"absent" de la matrice I/O (couverts par la vérification manuelle dans le routeur) renvoient le code documenté.
+  evidence: Hors du périmètre exact de la matrice I/O gelée (qui ne couvre que "vide/absent"), et improbable en usage normal (le frontend n'envoie jamais `null` ni ne dépasse les bornes `maxLength` HTML) -- mais un appelant API direct verrait une incohérence de code d'erreur entre les différentes façons de fournir un `nom` invalide.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-6-enregistrer-un-parcours-dans-sa-bibliothèque.md`
+  summary: Le Save form de l'Atelier ne réinitialise pas le message d'erreur d'enregistrement à chaque frappe (seulement au prochain "Enregistrer"), et ne réinitialise ni l'erreur ni la confirmation à la fermeture (×) du formulaire -- rouvrir plus tard peut réafficher un statut obsolète d'une tentative précédente.
+  evidence: Cosmétique (le message reste factuellement vrai sur la dernière tentative), distinct du cas patché (confirmation obsolète après une édition qui invalide `parcoursId`, corrigé dans cette story) -- signalé par la revue edge-case-hunter.

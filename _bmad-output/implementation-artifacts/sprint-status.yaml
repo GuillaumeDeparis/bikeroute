@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 08-21-2026 23:00
-last_updated: 08-25-2026
+last_updated: 08-26-2026
 
 project: bikeroute
 project_key: NOKEY
@@ -50,7 +50,7 @@ development_status:
   2-3-éditer-un-parcours-sur-la-carte: done
   2-4-inverser-le-sens-d-un-parcours: done
   2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé: done
-  2-6-enregistrer-un-parcours-dans-sa-bibliothèque: backlog
+  2-6-enregistrer-un-parcours-dans-sa-bibliothèque: review
   2-7-exporter-un-parcours-en-gpx: backlog
   epic-2-retrospective: optional
 

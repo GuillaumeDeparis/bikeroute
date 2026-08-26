@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ApiError, getSession } from './api/client'
+import { ApiError, getSession, type ResultatParcours } from './api/client'
 import { AppHeader } from './components/AppHeader'
 import { Accueil, AccueilSkeleton } from './pages/Accueil'
 import { Atelier } from './pages/Atelier'
 import { Connexion } from './pages/Connexion'
 import { Inscription } from './pages/Inscription'
+import { MesParcours } from './pages/MesParcours'
 
 // Pas de librairie de routage : encore peu d'écrans, aucune URL profonde
 // requise (cf. Design Notes de spec-1-2) -- réévalué à l'introduction de
@@ -17,7 +18,11 @@ type Vue =
   | { nom: 'connexion'; messageExpiration?: string }
   | { nom: 'inscription' }
   | { nom: 'accueil'; identifiant: string }
-  | { nom: 'atelier'; identifiant: string }
+  // `parcoursAOuvrir` (spec-2-6) : présent seulement en provenance de « Mes
+  // parcours » (réouverture) -- absent pour un nouveau parcours (Accueil ou
+  // « Mes parcours » vide, cf. `MesParcours.tsx`).
+  | { nom: 'atelier'; identifiant: string; parcoursAOuvrir?: ResultatParcours }
+  | { nom: 'mes-parcours'; identifiant: string }
 
 function App() {
   const [vue, setVue] = useState<Vue>({ nom: 'resolution' })
@@ -86,10 +91,15 @@ function App() {
   if (vue.nom === 'accueil') {
     return (
       <>
-        <AppHeader identifiant={vue.identifiant} onDeconnexion={() => setVue({ nom: 'connexion' })} />
+        <AppHeader
+          identifiant={vue.identifiant}
+          onDeconnexion={() => setVue({ nom: 'connexion' })}
+          onOuvrirMesParcours={() => setVue({ nom: 'mes-parcours', identifiant: vue.identifiant })}
+        />
         <Accueil
           identifiant={vue.identifiant}
           onOuvrirAtelier={() => setVue({ nom: 'atelier', identifiant: vue.identifiant })}
+          onOuvrirMesParcours={() => setVue({ nom: 'mes-parcours', identifiant: vue.identifiant })}
           onSessionExpiree={() =>
             setVue({
               nom: 'connexion',
@@ -104,9 +114,44 @@ function App() {
   if (vue.nom === 'atelier') {
     return (
       <>
-        <AppHeader identifiant={vue.identifiant} onDeconnexion={() => setVue({ nom: 'connexion' })} />
+        <AppHeader
+          identifiant={vue.identifiant}
+          onDeconnexion={() => setVue({ nom: 'connexion' })}
+          onOuvrirMesParcours={() => setVue({ nom: 'mes-parcours', identifiant: vue.identifiant })}
+        />
         <Atelier
+          // Remonte le composant à chaque nouveau parcours réouvert (ou
+          // repli sur un nouveau parcours vierge, spec-2-6) : les
+          // initialiseurs paresseux de l'Atelier (points/trace/métriques/
+          // parcoursId préchargés) ne s'exécutent qu'au montage.
+          key={vue.parcoursAOuvrir?.id ?? 'nouveau'}
           onRetourAccueil={() => setVue({ nom: 'accueil', identifiant: vue.identifiant })}
+          onSessionExpiree={() =>
+            setVue({
+              nom: 'connexion',
+              messageExpiration: 'Votre session a expiré. Reconnectez-vous pour continuer.',
+            })
+          }
+          parcoursAOuvrir={vue.parcoursAOuvrir}
+        />
+      </>
+    )
+  }
+
+  if (vue.nom === 'mes-parcours') {
+    return (
+      <>
+        <AppHeader
+          identifiant={vue.identifiant}
+          onDeconnexion={() => setVue({ nom: 'connexion' })}
+          onOuvrirMesParcours={() => setVue({ nom: 'mes-parcours', identifiant: vue.identifiant })}
+        />
+        <MesParcours
+          onRetourAccueil={() => setVue({ nom: 'accueil', identifiant: vue.identifiant })}
+          onCreerParcours={() => setVue({ nom: 'atelier', identifiant: vue.identifiant })}
+          onOuvrirParcours={(parcours) =>
+            setVue({ nom: 'atelier', identifiant: vue.identifiant, parcoursAOuvrir: parcours })
+          }
           onSessionExpiree={() =>
             setVue({
               nom: 'connexion',

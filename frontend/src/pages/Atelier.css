@@ -360,6 +360,101 @@
   stroke-linejoin: round;
 }
 
+/* Save form (spec-2-6, UX-DR22) : nom + note facultative + étiquettes dans
+   une surface unique -- même palette que `.atelier__menu-contextuel`. */
+.atelier__enregistrement-zone {
+  display: flex;
+  flex-direction: column;
+}
+
+.atelier__ouvrir-enregistrement {
+  align-self: flex-start;
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.atelier__ouvrir-enregistrement:hover,
+.atelier__ouvrir-enregistrement:focus-visible {
+  background: #23583e;
+}
+
+.atelier__ouvrir-enregistrement:disabled {
+  cursor: not-allowed;
+  background: #9fbfae;
+}
+
+.atelier__enregistrement {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #cfe0d7;
+  border-radius: 0.5rem;
+  background: #f2f8f5;
+}
+
+.atelier__enregistrement-entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.15rem;
+}
+
+.atelier__enregistrement-fermer {
+  border: none;
+  background: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #555;
+  padding: 0.1rem 0.3rem;
+}
+
+.atelier__enregistrement label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.atelier__enregistrement input,
+.atelier__enregistrement textarea {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 0.25rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.atelier__enregistrement button[type='submit'] {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  padding: 0.5rem 0.9rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+}
+
+.atelier__enregistrement button[type='submit']:disabled {
+  cursor: not-allowed;
+  background: #9fbfae;
+}
+
+.atelier__confirmation {
+  color: #1b5e20;
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
 .atelier__bandeau-non-route {
   padding: 0.75rem 1rem;
   border: 1px solid #e0b84a;

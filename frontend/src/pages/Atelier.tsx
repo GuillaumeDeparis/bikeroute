@@ -8,14 +8,16 @@ import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from 
 import {
   ApiError,
   calculerParcours,
+  enregistrerParcours,
   rechercherAdresse,
-  type Difficulte,
   type Metriques,
   type PointCoordonnee,
   type PointProfil,
   type ResultatAdresse,
+  type ResultatParcours,
 } from '../api/client'
-import { inverserPoints, type PointAtelier, type Role, type Topologie } from './Atelier.inversion'
+import { formatDenivele, formatDistance, formatDuree, libelleDifficulte } from './Atelier.format'
+import { construirePointsDepuisParcours, inverserPoints, type PointAtelier, type Role, type Topologie } from './Atelier.inversion'
 import './Atelier.css'
 
 // Bundler (Vite) : les icônes par défaut de Leaflet pointent vers des chemins
@@ -174,55 +176,6 @@ function RecentrageRecherche({ centre }: { centre: [number, number] | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centre])
   return null
-}
-
-/** "54,2 km" -- un chiffre après la virgule, séparateur français (cf.
- * mockups/key-atelier-manuel.html). */
-function formatDistance(distanceM: number): string {
-  return `${(distanceM / 1000).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`
-}
-
-/** "830 m" -- D+/D-, arrondis au mètre le plus proche (pas de décimale : une
- * précision centimétrique n'aurait aucun sens pour un dénivelé cyclable). */
-function formatDenivele(deniveleM: number): string {
-  return `${Math.round(deniveleM)} m`
-}
-
-/** "2 h 40" (ou "40 min" sous l'heure) -- même registre que les mockups,
- * jamais de secondes affichées (pas assez signifiant pour une durée
- * cyclable). */
-function formatDuree(dureeS: number): string {
-  // Plancher à 0 : défense en profondeur si le backend émettait un jour une
-  // durée négative (ne devrait jamais arriver, `duration_s` y est validé
-  // strictement positive côté Valhalla, cf. `valhalla_provider.py`) --
-  // jamais une durée négative affichée à l'écran.
-  const minutesTotales = Math.max(0, Math.round(dureeS / 60))
-  const heures = Math.floor(minutesTotales / 60)
-  const minutes = minutesTotales % 60
-  if (heures === 0) {
-    return `${minutes} min`
-  }
-  return `${heures} h ${String(minutes).padStart(2, '0')}`
-}
-
-/** `difficulte` typé `Difficulte` (4 valeurs garanties par le contrat
- * backend, cf. `Literal` de `MetriquesResponse.difficulte`) -- le
- * `default` ci-dessous reste un filet défensif si le backend émettait
- * malgré tout une valeur imprévue (contrat rompu/version divergente),
- * plutôt que de laisser passer un `undefined` silencieux à l'affichage. */
-function libelleDifficulte(difficulte: Difficulte): string {
-  switch (difficulte) {
-    case 'facile':
-      return 'Facile'
-    case 'modere':
-      return 'Modéré'
-    case 'difficile':
-      return 'Difficile'
-    case 'tres_difficile':
-      return 'Très difficile'
-    default:
-      return difficulte
-  }
 }
 
 /** "42 %" -- proportion (0..1) de revêtement/catégorie routière, arrondie au
@@ -446,14 +399,28 @@ function BulleMetriques({
 interface AtelierProps {
   onRetourAccueil: () => void
   onSessionExpiree?: () => void
+  /** Parcours réouvert depuis « Mes parcours » (spec-2-6) : précharge points/
+   * trace/métriques/topologie/nom/note/étiquettes, sans aucun nouvel appel
+   * Valhalla (Boundaries de la spec) -- la réouverture délègue entièrement à
+   * l'Atelier existant (Design Notes). L'appelant remonte le composant (via
+   * une `key` dédiée, cf. `App.tsx`) pour rouvrir un autre parcours : cette
+   * prop n'est donc lue qu'au montage, jamais réagie à un changement. */
+  parcoursAOuvrir?: ResultatParcours
 }
 
-export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
-  const [points, setPoints] = useState<PointAtelier[]>([])
+export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: AtelierProps) {
+  // Reconstruction pure (spec-2-6, Design Notes) : lue seulement par les
+  // initialiseurs paresseux des `useState` ci-dessous (jamais recalculée
+  // après le montage, `parcoursAOuvrir` restant stable pour la durée de vie
+  // du composant, cf. commentaire de la prop).
+  const parcoursPrecharge = parcoursAOuvrir ? construirePointsDepuisParcours(parcoursAOuvrir.points ?? []) : undefined
+
+  const [points, setPoints] = useState<PointAtelier[]>(() => parcoursPrecharge?.points ?? [])
   // Choix imposé par le Contextual menu dès le départ posé -- jamais de
-  // valeur par défaut implicite (cf. Boundaries de la spec-2-2).
-  const [topologie, setTopologie] = useState<Topologie | undefined>(undefined)
-  const [trace, setTrace] = useState<PointCoordonnee[]>([])
+  // valeur par défaut implicite (cf. Boundaries de la spec-2-2). Préchargée
+  // depuis un parcours réouvert (spec-2-6).
+  const [topologie, setTopologie] = useState<Topologie | undefined>(() => parcoursPrecharge?.topologie)
+  const [trace, setTrace] = useState<PointCoordonnee[]>(() => parcoursAOuvrir?.geometrie ?? [])
   const [calculEnCours, setCalculEnCours] = useState(false)
   // Une inversion est une intention de recalcul même si les coordonnées
   // restent identiques (Boucle à un seul passage ou points superposés).
@@ -464,8 +431,33 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
   // laisse affichées), ni jamais présentes hors statut "routed" (mêmes
   // points de mise à jour que `trace` ci-dessous, jamais un état séparé qui
   // pourrait diverger).
-  const [metriques, setMetriques] = useState<Metriques | undefined>(undefined)
+  const [metriques, setMetriques] = useState<Metriques | undefined>(() => parcoursAOuvrir?.metriques)
   const [bulleMetriquesDepliee, setBulleMetriquesDepliee] = useState(false)
+
+  // Identité du parcours persisté correspondant au tracé actuellement
+  // affiché (spec-2-6) : capturée depuis `resultat.id` après chaque calcul
+  // routé réussi, remise à `undefined` dès qu'une édition relance un calcul
+  // (cf. l'effet de calcul ci-dessous) -- cible du `PATCH` d'enregistrement,
+  // jamais utilisée pour du rendu au-delà de conditionner ce bouton.
+  const [parcoursId, setParcoursId] = useState<string | undefined>(() => parcoursAOuvrir?.id)
+  // Réouverture (spec-2-6) : le tout premier passage de l'effet de calcul
+  // ci-dessous doit être ignoré -- trace/métriques/parcoursId viennent déjà
+  // de la persistance (initialiseurs paresseux ci-dessus), aucun nouvel
+  // appel Valhalla au montage (Boundaries de la spec). Un seul coup : toute
+  // édition suivante repasse par le chemin normal.
+  const ignorerPremierCalculRef = useRef(parcoursAOuvrir !== undefined)
+
+  // Save form (spec-2-6, UX-DR22) : nom/note/étiquettes préchargés depuis un
+  // parcours réouvert, sinon vides pour un nouveau calcul -- jamais effacés
+  // à un échec d'enregistrement (les trois champs restent conservés pour
+  // réessayer, cf. matrice I/O de la spec).
+  const [saveFormOuvert, setSaveFormOuvert] = useState(false)
+  const [nomSaisie, setNomSaisie] = useState(() => parcoursAOuvrir?.nom ?? '')
+  const [noteSaisie, setNoteSaisie] = useState(() => parcoursAOuvrir?.note ?? '')
+  const [etiquettesSaisie, setEtiquettesSaisie] = useState(() => (parcoursAOuvrir?.etiquettes ?? []).join(', '))
+  const [enregistrementEnCours, setEnregistrementEnCours] = useState(false)
+  const [erreurEnregistrement, setErreurEnregistrement] = useState<string | undefined>(undefined)
+  const [confirmationEnregistrement, setConfirmationEnregistrement] = useState(false)
 
   const [recherche, setRecherche] = useState('')
   const [rechercheEnCours, setRechercheEnCours] = useState(false)
@@ -741,6 +733,16 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
     setBulleMetriquesDepliee(false)
     setErreurCalcul(undefined)
     setCalculEnCours(false)
+    // Repart aussi à vide côté enregistrement (spec-2-6) : plus aucun
+    // parcours persisté ne correspond à un plan tout juste réinitialisé.
+    setParcoursId(undefined)
+    setSaveFormOuvert(false)
+    setNomSaisie('')
+    setNoteSaisie('')
+    setEtiquettesSaisie('')
+    setEnregistrementEnCours(false)
+    setErreurEnregistrement(undefined)
+    setConfirmationEnregistrement(false)
   }
 
   // Inversion du sens de parcours (spec-2-4) : Boucle et Aller simple
@@ -786,8 +788,28 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
       setMetriques(undefined)
       setErreurCalcul(undefined)
       setCalculEnCours(false)
+      setParcoursId(undefined)
       return
     }
+    if (ignorerPremierCalculRef.current) {
+      // Parcours préchargé (réouverture, spec-2-6) : trace/métriques/
+      // parcoursId viennent déjà de la persistance -- ne consomme ce
+      // court-circuit qu'une seule fois, au tout premier passage.
+      ignorerPremierCalculRef.current = false
+      return
+    }
+    // Toute édition qui relance ce calcul invalide immédiatement le
+    // `parcoursId` courant (spec-2-6, Design Notes) : le tracé/les
+    // métriques affichés restent ceux d'avant (patron `trace` ci-dessus),
+    // mais rien ne doit pouvoir être enregistré tant que le nouveau calcul
+    // n'a pas abouti à son tour. Une confirmation/erreur d'enregistrement
+    // affichée avant cette édition ne décrit plus le tracé courant -- sans
+    // ce reset, "Parcours enregistré." resterait affiché à côté d'un bouton
+    // "Enregistrer" redevenu désactivé, laissant croire à tort que la
+    // dernière édition est déjà sauvegardée (revue de code post-implémentation).
+    setParcoursId(undefined)
+    setConfirmationEnregistrement(false)
+    setErreurEnregistrement(undefined)
     const aEnvoyer = pointsCalcul
     let annule = false
     // Un point posé de nouveau (ou le démontage) avant la fin de ce calcul
@@ -821,6 +843,10 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
         // Même garde : aucune métrique affichée hors statut "routed" (cf.
         // matrice I/O de la spec-2-5).
         setMetriques(resultat.statut === 'routed' ? resultat.metriques : undefined)
+        // Même garde (spec-2-6) : seul un parcours routé est enregistrable
+        // (Boundaries de la spec), `parcoursId` reste `undefined` sinon --
+        // le bouton "Enregistrer" y reste alors désactivé.
+        setParcoursId(resultat.statut === 'routed' ? resultat.id : undefined)
       } catch (error) {
         if (annule) {
           return
@@ -901,6 +927,43 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
     setResultatsRecherche(undefined)
     setRecherche('')
     setFocusRecherche([resultat.lat, resultat.lon])
+  }
+
+  // Enregistrement dans la bibliothèque (spec-2-6, UX-DR22) : `PATCH` sur le
+  // parcours courant identifié par `parcoursId` -- ne recalcule jamais rien.
+  // Nom/note/étiquettes restent affichés tels quels après l'appel, succès
+  // comme échec (cf. matrice I/O : "nom, note et étiquettes sont conservés
+  // et je peux réessayer").
+  async function soumettreEnregistrement(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!parcoursId || enregistrementEnCours) {
+      return
+    }
+    const nom = nomSaisie.trim()
+    if (!nom) {
+      setErreurEnregistrement('Le nom est obligatoire pour enregistrer le parcours.')
+      return
+    }
+    const etiquettes = etiquettesSaisie
+      .split(',')
+      .map((etiquette) => etiquette.trim())
+      .filter((etiquette) => etiquette.length > 0)
+    setEnregistrementEnCours(true)
+    setErreurEnregistrement(undefined)
+    try {
+      await enregistrerParcours(parcoursId, { nom, note: noteSaisie.trim() || undefined, etiquettes })
+      setConfirmationEnregistrement(true)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionExpiree?.()
+        return
+      }
+      setErreurEnregistrement(
+        error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
+      )
+    } finally {
+      setEnregistrementEnCours(false)
+    }
   }
 
   const pointsNonRoutes = points.filter((point) => point.nonRoute)
@@ -1107,6 +1170,97 @@ export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
             depliee={bulleMetriquesDepliee}
             onBasculer={() => setBulleMetriquesDepliee((precedent) => !precedent)}
           />
+        )}
+
+        {/* Enregistrement dans la bibliothèque (spec-2-6, UX-DR22) : visible
+            dès qu'un tracé est affiché, désactivé tant qu'aucun parcours
+            persisté ne correspond exactement au tracé courant (recalcul en
+            cours ou tracé non routé, cf. `parcoursId` ci-dessus). */}
+        {trace.length > 0 && (
+          <div className="atelier__enregistrement-zone">
+            {!saveFormOuvert && (
+              <button
+                type="button"
+                className="atelier__ouvrir-enregistrement"
+                onClick={() => setSaveFormOuvert(true)}
+                disabled={parcoursId === undefined}
+              >
+                Enregistrer
+              </button>
+            )}
+
+            {saveFormOuvert && (
+              <form
+                className="atelier__enregistrement"
+                onSubmit={soumettreEnregistrement}
+                aria-label="Enregistrer le parcours"
+              >
+                <div className="atelier__enregistrement-entete">
+                  <p className="atelier__section-titre">Enregistrer dans ma bibliothèque</p>
+                  <button
+                    type="button"
+                    className="atelier__enregistrement-fermer"
+                    onClick={() => setSaveFormOuvert(false)}
+                    aria-label="Fermer le formulaire d'enregistrement"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <label htmlFor="atelier-nom">Nom</label>
+                <input
+                  id="atelier-nom"
+                  type="text"
+                  value={nomSaisie}
+                  maxLength={200}
+                  required
+                  onChange={(event) => {
+                    setNomSaisie(event.target.value)
+                    setConfirmationEnregistrement(false)
+                  }}
+                />
+
+                <label htmlFor="atelier-note">Note (facultative)</label>
+                <textarea
+                  id="atelier-note"
+                  value={noteSaisie}
+                  maxLength={2000}
+                  rows={3}
+                  onChange={(event) => {
+                    setNoteSaisie(event.target.value)
+                    setConfirmationEnregistrement(false)
+                  }}
+                />
+
+                <label htmlFor="atelier-etiquettes">Étiquettes (séparées par des virgules)</label>
+                <input
+                  id="atelier-etiquettes"
+                  type="text"
+                  value={etiquettesSaisie}
+                  placeholder="ex. gravel, weekend"
+                  onChange={(event) => {
+                    setEtiquettesSaisie(event.target.value)
+                    setConfirmationEnregistrement(false)
+                  }}
+                />
+
+                {erreurEnregistrement && (
+                  <p role="alert" className="atelier__erreur">
+                    {erreurEnregistrement}
+                  </p>
+                )}
+                {confirmationEnregistrement && (
+                  <p role="status" className="atelier__confirmation">
+                    Parcours enregistré.
+                  </p>
+                )}
+
+                <button type="submit" disabled={enregistrementEnCours || parcoursId === undefined}>
+                  {enregistrementEnCours ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              </form>
+            )}
+          </div>
         )}
 
         {pointsNonRoutes.length > 0 && (

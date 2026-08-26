@@ -12,10 +12,13 @@ const INTERVALLE_VERIFICATION_SESSION_MS = 30_000
 interface AccueilProps {
   identifiant: string
   onOuvrirAtelier: () => void
+  /** Optionnel (pas requis par les tests historiques de cette page) : lien
+   * vers « Mes parcours » (spec-2-6, Story 2.6) depuis l'état vide. */
+  onOuvrirMesParcours?: () => void
   onSessionExpiree: () => void
 }
 
-export function Accueil({ identifiant, onOuvrirAtelier, onSessionExpiree }: AccueilProps) {
+export function Accueil({ identifiant, onOuvrirAtelier, onOuvrirMesParcours, onSessionExpiree }: AccueilProps) {
   useEffect(() => {
     let annule = false
     let intervalId: number | undefined
@@ -90,15 +93,20 @@ export function Accueil({ identifiant, onOuvrirAtelier, onSessionExpiree }: Accu
       <h1>Accueil</h1>
       <p className="accueil__session">Connecté en tant que {identifiant}.</p>
 
-      {/* Aucun historique de parcours enregistré n'existe avant l'Epic 5
-          (Mes parcours) : cet état "aucun parcours" reste donc systématique,
-          pas un cas parmi d'autres, même maintenant que l'Atelier (Epic 2)
-          est ouvert. */}
+      {/* « Mes parcours » existe depuis la story 2.6 (Epic 2), pas l'Epic 5
+          comme l'affirmait un commentaire précédent (cf. epics.md:181/256).
+          L'état vide de l'Accueil reste néanmoins affiché systématiquement
+          -- aucun comptage des parcours enregistrés n'est fait ici (hors
+          scope de cette story) -- un lien vers « Mes parcours » est
+          désormais proposé en plus du CTA Atelier. */}
       <section className="accueil__etat-vide">
         <h2>Aucun parcours pour l'instant</h2>
         <p>Préparez votre premier parcours dans l'Atelier cartographique.</p>
         <button type="button" className="accueil__cta" onClick={onOuvrirAtelier}>
           Ouvrir l'Atelier
+        </button>
+        <button type="button" className="accueil__lien-secondaire" onClick={onOuvrirMesParcours}>
+          Voir Mes parcours
         </button>
       </section>
     </main>

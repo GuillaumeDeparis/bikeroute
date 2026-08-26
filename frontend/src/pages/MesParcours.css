@@ -1,0 +1,155 @@
+/* Spine-only (UX-DR24) : styles minimaux, cohérents avec Accueil.css. */
+.mes-parcours {
+  max-width: 40rem;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+
+.mes-parcours__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.mes-parcours__entete h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.mes-parcours__retour {
+  border: none;
+  background: none;
+  color: #2a6f4d;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.mes-parcours__erreur,
+.mes-parcours__erreur-ouverture {
+  color: #a02020;
+  background: #fdecec;
+  border: 1px solid #f2b8b8;
+  border-radius: 0.25rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.9rem;
+}
+
+.mes-parcours__erreur {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.mes-parcours__erreur button {
+  padding: 0.4rem 0.75rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+}
+
+.mes-parcours__vide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 2rem 1.5rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  background: #fafafa;
+}
+
+.mes-parcours__cta {
+  display: inline-flex;
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: #2a6f4d;
+  color: #fff;
+  cursor: pointer;
+}
+
+.mes-parcours__cta:hover,
+.mes-parcours__cta:focus-visible {
+  background: #23583e;
+}
+
+.mes-parcours__liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.mes-parcours__ouvrir {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mes-parcours__ouvrir:hover,
+.mes-parcours__ouvrir:focus-visible {
+  border-color: #2a6f4d;
+  background: #f2f8f5;
+}
+
+.mes-parcours__ouvrir:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.mes-parcours__nom {
+  font-weight: 650;
+  font-size: 1rem;
+  color: #17324d;
+}
+
+.mes-parcours__note {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.mes-parcours__metriques {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  color: #5f7888;
+}
+
+.mes-parcours__etiquettes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.1rem;
+}
+
+.mes-parcours__etiquette {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #f2f6f4;
+  color: #2a6f4d;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 30rem) {
+  .mes-parcours {
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+}

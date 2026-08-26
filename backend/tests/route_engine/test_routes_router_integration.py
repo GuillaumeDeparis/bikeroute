@@ -6,6 +6,8 @@ PostgreSQL/PostGIS (via `client`/`db_session`, cf. `conftest.py`), mais
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -269,3 +271,270 @@ def test_un_seul_point_est_rejete_en_422(client: TestClient) -> None:
     response = client.post("/api/routes/calculate", json={"points": [DEPART]})
 
     assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# spec-2-6 : PATCH /api/routes/{id} (enregistrement), GET /api/routes (liste),
+# GET /api/routes/{id} (réouverture) -- matrice I/O de la spec.
+# ---------------------------------------------------------------------------
+
+
+def _calculer_un_parcours_route(client: TestClient) -> dict:
+    depart = Coordinate(lat=DEPART["lat"], lon=DEPART["lon"])
+    destination = Coordinate(lat=DESTINATION["lat"], lon=DESTINATION["lon"])
+    result = RouteResult(
+        geometry=(depart, destination), unrouted_points=(), provider="valhalla", version="3.8.3", duration_s=300.0
+    )
+    _override_provider(FakeRoutingProvider(result=result))
+    _override_elevation_provider(FakeElevationProvider(elevations=(100.0, 140.0)))
+    response = client.post("/api/routes/calculate", json={"points": [DEPART, DESTINATION]})
+    assert response.status_code == 201
+    return response.json()
+
+
+def _calculer_un_parcours_non_route(client: TestClient) -> dict:
+    destination = Coordinate(lat=DESTINATION["lat"], lon=DESTINATION["lon"])
+    result = RouteResult(geometry=(), unrouted_points=(destination,), provider="valhalla", version="3.8.3")
+    _override_provider(FakeRoutingProvider(result=result))
+    _override_elevation_provider(FakeElevationProvider())
+    response = client.post("/api/routes/calculate", json={"points": [DEPART, DESTINATION]})
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_enregistrement_reussi_persiste_nom_note_etiquettes(client: TestClient, db_session) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(
+        f"/api/routes/{parcours['id']}",
+        json={"nom": "Boucle du dimanche", "note": "Belle vue au sommet.", "etiquettes": ["gravel", "weekend"]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["nom"] == "Boucle du dimanche"
+    assert body["note"] == "Belle vue au sommet."
+    assert body["etiquettes"] == ["gravel", "weekend"]
+    # Points bruts d'entrée exposés pour la réouverture (spec-2-6, Design
+    # Notes) -- jamais renvoyés par `/calculate` (`points` y reste `[]`).
+    assert body["points"] == [DEPART, DESTINATION]
+    assert body["metriques"] is not None
+
+    row = db_session.execute(select(RouteModel).where(RouteModel.id == parcours["id"])).scalar_one()
+    assert row.nom == "Boucle du dimanche"
+    assert row.note == "Belle vue au sommet."
+    assert row.etiquettes == ["gravel", "weekend"]
+
+
+def test_enregistrement_nom_vide_est_rejete_sans_modifier_la_ligne(client: TestClient, db_session) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "", "note": "gardé"})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "PARAMETRES_INVALIDES"
+
+    row = db_session.execute(select(RouteModel).where(RouteModel.id == parcours["id"])).scalar_one()
+    assert row.nom is None
+
+
+def test_enregistrement_nom_absent_est_rejete(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "PARAMETRES_INVALIDES"
+
+
+def test_enregistrement_avec_une_etiquette_vide_apres_trim_est_rejete(client: TestClient, db_session) -> None:
+    """Le frontend trim/filtre déjà les étiquettes avant envoi (`Atelier.tsx`),
+    mais l'API reste appelable directement -- une étiquette vide/uniquement
+    des espaces ne doit jamais être persistée (revue de code post-
+    implémentation)."""
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Valide", "etiquettes": ["gravel", "   "]})
+
+    assert response.status_code == 422
+
+    row = db_session.execute(select(RouteModel).where(RouteModel.id == parcours["id"])).scalar_one()
+    assert row.nom is None
+
+
+def test_enregistrement_avec_une_etiquette_trop_longue_est_rejete(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Valide", "etiquettes": ["x" * 51]})
+
+    assert response.status_code == 422
+
+
+def test_enregistrement_normalise_les_etiquettes_par_un_trim(client: TestClient) -> None:
+    """`StringConstraints(strip_whitespace=True, ...)` normalise aussi la
+    valeur stockée, pas seulement la validation."""
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Valide", "etiquettes": ["  gravel  "]})
+
+    assert response.status_code == 200
+    assert response.json()["etiquettes"] == ["gravel"]
+
+
+def test_enregistrement_dun_parcours_non_route_est_refuse(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_non_route(client)
+    assert parcours["statut"] == "non_route"
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Tentative"})
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "PARCOURS_NON_PRET"
+
+
+def test_enregistrement_dun_parcours_dun_autre_compte_renvoie_404(client: TestClient) -> None:
+    _inscrire_et_connecter(client, identifiant="alice")
+    parcours = _calculer_un_parcours_route(client)
+
+    client.post("/api/auth/logout")
+    _inscrire_et_connecter(client, identifiant="bob")
+
+    response = client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Vol de parcours"})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESSOURCE_INTROUVABLE"
+
+
+def test_enregistrement_dun_id_inexistant_renvoie_404_identique(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+
+    response = client.patch(f"/api/routes/{uuid4()}", json={"nom": "Fantôme"})
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESSOURCE_INTROUVABLE"
+
+
+def test_enregistrement_sans_authentification_renvoie_401(client: TestClient) -> None:
+    response = client.patch(f"/api/routes/{uuid4()}", json={"nom": "Peu importe"})
+
+    assert response.status_code == 401
+
+
+def test_liste_mes_parcours_ne_contient_que_les_parcours_nommes_recent_dabord(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    non_nomme = _calculer_un_parcours_route(client)
+    premier_nomme = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{premier_nomme['id']}", json={"nom": "Premier"})
+    second_nomme = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{second_nomme['id']}", json={"nom": "Second", "etiquettes": ["rapide"]})
+
+    response = client.get("/api/routes")
+
+    assert response.status_code == 200
+    body = response.json()
+    ids = [ligne["id"] for ligne in body]
+    assert non_nomme["id"] not in ids
+    assert ids == [second_nomme["id"], premier_nomme["id"]]
+    assert body[0]["nom"] == "Second"
+    assert body[0]["etiquettes"] == ["rapide"]
+    assert body[0]["distance_m"] > 0
+    assert body[0]["duree_s"] == 300.0
+    assert body[0]["difficulte"]
+
+
+def test_liste_mes_parcours_vide_quand_aucun_parcours_nomme(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    _calculer_un_parcours_route(client)
+
+    response = client.get("/api/routes")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_liste_mes_parcours_sans_authentification_renvoie_401(client: TestClient) -> None:
+    response = client.get("/api/routes")
+
+    assert response.status_code == 401
+
+
+def test_reouverture_dun_parcours_enregistre_renvoie_points_trace_et_metriques(
+    client: TestClient, db_session
+) -> None:
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Boucle du dimanche"})
+
+    response = client.get(f"/api/routes/{parcours['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["statut"] == "routed"
+    assert body["nom"] == "Boucle du dimanche"
+    assert body["points"] == [DEPART, DESTINATION]
+    # Tracé relu depuis PostGIS (jamais recalculé -- aucun fournisseur de
+    # routage/élévation surchargé pour cet appel, cf. Boundaries de la spec).
+    assert body["geometry"] == [DEPART, DESTINATION]
+    assert body["metriques"] is not None
+    assert body["metriques"]["duree_s"] == pytest.approx(300.0)
+    assert body["metriques"]["denivele_positif_m"] == pytest.approx(40.0)
+
+
+def test_reouverture_dun_parcours_dun_autre_compte_renvoie_404(client: TestClient) -> None:
+    _inscrire_et_connecter(client, identifiant="alice")
+    parcours = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{parcours['id']}", json={"nom": "À moi"})
+
+    client.post("/api/auth/logout")
+    _inscrire_et_connecter(client, identifiant="bob")
+
+    response = client.get(f"/api/routes/{parcours['id']}")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESSOURCE_INTROUVABLE"
+
+
+def test_reouverture_sans_authentification_renvoie_401(client: TestClient) -> None:
+    response = client.get(f"/api/routes/{uuid4()}")
+
+    assert response.status_code == 401
+
+
+def test_reouverture_dun_ancien_parcours_sans_revetements_ni_profil_naffiche_que_ce_qui_existe(
+    client: TestClient, db_session
+) -> None:
+    """Un parcours calculé avant la story 2.5 (détail) n'a en base ni
+    `revetements`/`categories_routieres`/`profil`/`montees_significatives`
+    (JSONB plus ancien) -- la réouverture doit rester possible, avec ces
+    champs vides, jamais une erreur 500 (matrice I/O de la spec-2-6)."""
+    _inscrire_et_connecter(client)
+    parcours = _calculer_un_parcours_route(client)
+    client.patch(f"/api/routes/{parcours['id']}", json={"nom": "Vieux parcours"})
+
+    row = db_session.execute(select(RouteModel).where(RouteModel.id == parcours["id"])).scalar_one()
+    ancien_metrics = {
+        "distance_m": row.metrics["distance_m"],
+        "denivele_positif_m": row.metrics["denivele_positif_m"],
+        "denivele_negatif_m": row.metrics["denivele_negatif_m"],
+        "duree_s": row.metrics["duree_s"],
+        "difficulte": row.metrics["difficulte"],
+    }
+    row.metrics = ancien_metrics
+    db_session.commit()
+
+    response = client.get(f"/api/routes/{parcours['id']}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["metriques"] is not None
+    assert body["metriques"]["distance_m"] == pytest.approx(ancien_metrics["distance_m"])
+    assert body["metriques"]["revetements"] == {"inconnu": 0.0}
+    assert body["metriques"]["categories_routieres"] == {"inconnu": 0.0}
+    assert body["metriques"]["profil"] == []
+    assert body["metriques"]["montees_significatives"] == []

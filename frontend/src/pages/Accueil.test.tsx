@@ -68,3 +68,23 @@ describe('Accueil — ouverture de l’Atelier (Story 2.1)', () => {
     expect(onOuvrirAtelier).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('Accueil — lien vers Mes parcours (Story 2.6)', () => {
+  it("le lien « Voir Mes parcours » déclenche la navigation", async () => {
+    definirVisibilite(true)
+    const user = userEvent.setup()
+    const onOuvrirMesParcours = vi.fn()
+
+    render(
+      <Accueil
+        identifiant="alice"
+        onOuvrirAtelier={vi.fn()}
+        onOuvrirMesParcours={onOuvrirMesParcours}
+        onSessionExpiree={vi.fn()}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: 'Voir Mes parcours' }))
+
+    expect(onOuvrirMesParcours).toHaveBeenCalledTimes(1)
+  })
+})
