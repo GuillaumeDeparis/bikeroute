@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.routers import geocode as geocode_module
+from app.config import get_settings
 
 
 def _inscrire_et_connecter(client: TestClient, identifiant: str = "alice") -> None:
@@ -79,3 +80,26 @@ def test_echec_fournisseur_renvoie_502_recherche_indisponible(
     body = response.json()
     assert body["code"] == "RECHERCHE_INDISPONIBLE"
     assert "correlationId" in body
+
+
+def test_rate_limit_geocode_bloque_avant_un_nouvel_appel_nominatim(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _inscrire_et_connecter(client)
+    appels = 0
+
+    def fake_get(url: str, **kwargs) -> httpx.Response:
+        nonlocal appels
+        appels += 1
+        return httpx.Response(200, json=[], request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(geocode_module.httpx, "get", fake_get)
+    limite = get_settings().geocode_rate_limit_max_attempts
+    for _ in range(limite):
+        assert client.get("/api/geocode", params={"q": "Paris"}).status_code == 200
+
+    response = client.get("/api/geocode", params={"q": "Paris"})
+
+    assert response.status_code == 429
+    assert response.json()["code"] == "TROP_DE_TENTATIVES"
+    assert appels == limite

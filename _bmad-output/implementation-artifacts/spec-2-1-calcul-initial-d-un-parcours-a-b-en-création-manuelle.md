@@ -41,10 +41,10 @@ context:
 
 | Scenario | Input / State | Expected Output / Behavior | Error Handling |
 |----------|--------------|---------------------------|----------------|
-| Premier point posé | Atelier Manuel sans point, clic carte ou sélection d'un résultat de recherche | Le point devient le départ ; le Contextual menu demande la topologie | N/A |
+| Premier point posé | Atelier Manuel sans point, clic carte ou sélection d'un résultat de recherche | Le point devient le départ ; le Contextual menu indique la topologie « Aller simple » | N/A |
 | Destination posée | Un départ existe déjà, second point posé | Tracé routé calculé automatiquement, sans paramètre sportif, affiché sur la carte | Si le calcul échoue (Valhalla indisponible/erreur), le dernier tracé valide reste affiché et une erreur structurée est présentée |
 | Consultation du tracé | Tracé déjà calculé | Basé sur OpenStreetMap (via Valhalla), fournisseur remplaçable derrière `RoutingProvider` (NFR-2/13) | N/A |
-| Point non rattachable | Point posé hors réseau routier connu | Point marqué « non routé », bandeau d'état propose déplacer/modifier/supprimer | Aucun segment direct trompeur affiché |
+| Point non rattachable | Point posé hors réseau routier connu | Point marqué « non routé », bandeau d'état propose de supprimer/réinitialiser ; déplacer/modifier arrive en Story 2.3 | Aucun segment direct trompeur affiché |
 
 </frozen-after-approval>
 
@@ -80,7 +80,7 @@ context:
 - [x] `frontend/src/pages/Atelier.test.tsx` -- couvre les 4 scénarios de la matrice I/O
 
 **Acceptance Criteria:**
-- Given l'Atelier en mode Manuel sans point posé, when je place un point (recherche ou clic carte), then il devient le départ et le Contextual menu demande la topologie.
+- Given l'Atelier en mode Manuel sans point posé, when je place un point (recherche ou clic carte), then il devient le départ et le Contextual menu indique la topologie « Aller simple ».
 - Given j'ai un départ, when je place une destination, then un premier tracé routé est calculé automatiquement sans paramètre sportif.
 - Given le tracé est calculé, when je le consulte, then il repose sur OpenStreetMap et le fournisseur de routage reste remplaçable derrière `RoutingProvider`.
 - Given un point ne peut être rattaché au réseau, when j'observe le retour du système, then il reste marqué « non routé » avec un bandeau d'action, sans segment direct trompeur.
@@ -91,6 +91,7 @@ context:
 
 - **Routage frontend :** on étend l'union `Vue` existante (`{ nom: 'atelier' }`) plutôt que d'introduire `react-router` — reste cohérent avec le choix déjà documenté en 1.2 (pas de dépendance de routage pour un nombre d'écrans encore limité), à réévaluer si l'Atelier a besoin d'URLs profondes.
 - **Rôle `worker` :** différé à l'Epic 3. La story 2.1 est un calcul synchrone (« calcul automatiquement dès que... ») ; AD-12 vise 4 rôles au global du projet, pas dès cette story.
+- **Dérogation AD-12 bornée :** jusqu'à l'Epic 3, le worker reste absent et Alembic s'exécute au démarrage de l'API plutôt que dans un migrateur dédié. Les images Compose restent néanmoins épinglées par digest ; le worker et le migrateur unique sont requis lors de l'introduction du traitement asynchrone.
 - **Carte :** Leaflet + `react-leaflet` retenus (léger, licence permissive, écosystème OSM mature) plutôt que MapLibre — aucun des deux n'était déjà présent dans le repo.
 - **Contract `RoutingProvider` (esquisse) :**
   ```python
@@ -111,6 +112,26 @@ context:
 - Poser un point isolé (hors réseau routier du corpus de test) : bandeau « non routé » affiché, aucun segment direct.
 
 ## Suggested Review Order
+
+### Review Findings
+
+- [x] [Review][Patch] Reformuler l’AC1 pour indiquer que le menu informe de la topologie « Aller simple », le choix réel restant en Story 2.2 [spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md:42]
+- [x] [Review][Patch] Reformuler la matrice I/O pour limiter la Story 2.1 à supprimer/réinitialiser, le déplacement et la modification restant en Story 2.3 [spec-2-1-calcul-initial-d-un-parcours-a-b-en-création-manuelle.md:46]
+- [x] [Review][Patch] Documenter la dérogation temporaire AD-12 pour le worker et le migrateur, puis épingler dès maintenant les images Compose par digest [docker-compose.yml:5]
+- [x] [Review][Patch] Ne pas classifier toutes les réponses Valhalla 4xx comme des points non routables [backend/app/route_engine/adapters/outbound/valhalla_provider.py:86]
+- [x] [Review][Patch] Valider les types et la structure de la réponse `/route` avant de décoder la forme [backend/app/route_engine/adapters/outbound/valhalla_provider.py:103]
+- [x] [Review][Patch] Valider que `/locate` renvoie une liste d’objets appariable aux points [backend/app/route_engine/adapters/outbound/valhalla_provider.py:139]
+- [x] [Review][Patch] Rendre `_version()` tolérant à tout JSON valide de forme inattendue [backend/app/route_engine/adapters/outbound/valhalla_provider.py:156]
+- [x] [Review][Patch] Borner et valider le décodage des polylines corrompues [backend/app/route_engine/adapters/outbound/valhalla_provider.py:27]
+- [x] [Review][Patch] Valider la forme et les coordonnées des résultats Nominatim avant mapping [backend/app/routers/geocode.py:66]
+- [x] [Review][Patch] Rejeter explicitement les coordonnées non finies dans le domaine [backend/app/route_engine/domain/models.py:21]
+- [x] [Review][Patch] Ne jamais persister de géométrie lorsque le résultat est `non_route` [backend/app/route_engine/adapters/outbound/postgis_route_repository.py:39]
+- [x] [Review][Patch] Conserver les indices de points non routés sans ambiguïté lorsque des coordonnées sont dupliquées [backend/app/route_engine/adapters/outbound/postgis_route_repository.py:40]
+- [x] [Review][Patch] Ajouter des contraintes DB pour protéger les invariants statut/géométrie/points [backend/alembic/versions/20260823_0002_postgis_routes.py:28]
+- [x] [Review][Patch] Propager l’expiration de session depuis l’Atelier vers la vue de connexion [frontend/src/pages/Atelier.tsx:179]
+- [x] [Review][Patch] Afficher un état actionnable quand le backend renvoie `non_route` sans `pointsNonRoutes` [frontend/src/pages/Atelier.tsx:165]
+- [x] [Review][Patch] Tester réellement la conservation d’un tracé valide après un recalcul en erreur [frontend/src/pages/Atelier.test.tsx:224]
+- [x] [Review][Patch] Couvrir l’épuisement du rate limit de géocodage et l’absence d’appel Nominatim supplémentaire [backend/tests/test_geocode.py:24]
 
 **Point d'entrée**
 

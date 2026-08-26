@@ -38,8 +38,16 @@ class PostgisRouteRepository:
         # point (ex. départ == destination) échouerait au `flush` avec une
         # erreur DB brute, hors du format d'erreur structuré du reste de
         # l'API. Cohérent avec `RouteResult.est_route` (domain/models.py).
-        geometry = WKTElement(_linestring_wkt(list(result.geometry)), srid=4326) if len(result.geometry) >= 2 else None
-        unrouted_indices = [index for index, point in enumerate(points) if point in result.unrouted_points]
+        geometry = WKTElement(_linestring_wkt(list(result.geometry)), srid=4326) if result.est_route else None
+        non_routes_restants = list(result.unrouted_points)
+        unrouted_indices: list[int] = []
+        for index, point in enumerate(points):
+            try:
+                position = non_routes_restants.index(point)
+            except ValueError:
+                continue
+            unrouted_indices.append(index)
+            non_routes_restants.pop(position)
 
         # JSONB tel quel (patron `points` ci-dessus), pas de colonnes dédiées
         # (cf. Design Notes de la spec-2-5) ; `None` si le parcours n'a pas

@@ -49,7 +49,7 @@ context:
 ## Code Map
 
 - `backend/app/route_engine/domain/models.py:28-` (`RouteResult`) -- nouveau `SegmentAttribut(distance_m: float, valeur: str)` ; `surface_segments`/`road_class_segments: tuple[SegmentAttribut,...]` (défaut `()`) sur `RouteResult`.
-- `backend/app/route_engine/domain/metrics.py` -- `METRICS_VERSION` → `"2"` ; `calculer_metriques` gagne `surface_segments`/`road_class_segments` en entrée et `revetements`/`categories_routieres`/`profil`/`montees_significatives` sur `RouteMetrics` (nouvelles fonctions privées : proportions par segment avec clé "inconnu", détection de montées depuis le profil déjà calculé pour D+/D-).
+- `backend/app/route_engine/domain/metrics.py` -- `METRICS_VERSION` → `"3"` après revue ; `calculer_metriques` gagne `surface_segments`/`road_class_segments` en entrée et `revetements`/`categories_routieres`/`profil`/`montees_significatives` sur `RouteMetrics` (proportions avec reliquat imputé à "inconnu", détection des montées avec seuil de bruit altimétrique de 3 m).
 - `backend/app/route_engine/adapters/outbound/valhalla_provider.py:80-151` (`route`) -- nouvelle méthode privée `_attributs_voie(geometry)` : second appel `/trace_attributes` (`shape_match: "map_snap"`) après décodage de la géométrie, peuple `surface_segments`/`road_class_segments` ; mêmes garanties d'erreur (`RoutingProviderError`) que `/route`/`/locate`.
 - `backend/app/route_engine/application/calculate_route.py:52-57` -- transmettre `result.surface_segments`/`road_class_segments` à `calculer_metriques`.
 - `backend/app/route_engine/adapters/inbound/schemas.py:31-40` (`MetriquesResponse`) -- `revetements: dict[str, float]`, `categories_routieres: dict[str, float]`, `profil: list[PointProfilResponse]` (nouveau, `distance_m`/`elevation_m`), `montees_significatives: list[MonteeSignificativeResponse]` (nouveau, `distance_m`/`denivele_m`/`pente_moyenne`).
@@ -63,7 +63,7 @@ context:
 
 **Execution:**
 - [x] Domaine : `SegmentAttribut` + `RouteResult.surface_segments`/`road_class_segments`
-- [x] `domain/metrics.py` -- `METRICS_VERSION="2"`, proportions revêtements/catégories (clé "inconnu"), profil, détection montées significatives
+- [x] `domain/metrics.py` -- `METRICS_VERSION="3"`, proportions revêtements/catégories (clé "inconnu" et couverture complète), profil, détection montées significatives avec seuil de bruit de 3 m
 - [x] `adapters/outbound/valhalla_provider.py` -- `_attributs_voie` via `/trace_attributes`
 - [x] `application/calculate_route.py` -- transmettre les attributs à `calculer_metriques`
 - [x] `adapters/inbound/schemas.py` -- étendre `MetriquesResponse`

@@ -75,6 +75,17 @@ context:
 - [x] `frontend/src/pages/Atelier.tsx`, `Atelier.css` -- composant `BulleMetriques`
 - [x] `backend/tests/route_engine/...`, `frontend/src/pages/Atelier.test.tsx` -- matrice I/O (échec fournisseur, non-routé, recalcul)
 
+### Review Findings
+
+- [x] [Review][Patch] Filtrer les variations altimétriques inférieures à 3 m et tolérer les creux jusqu'à 3 m dans une montée ; incrémenter `METRICS_VERSION` [`backend/app/route_engine/domain/metrics.py`]
+- [x] [Review][Patch] Valider la structure et le caractère fini des altitudes renvoyées par Valhalla [`backend/app/route_engine/adapters/outbound/valhalla_elevation_provider.py`]
+- [x] [Review][Patch] Valider la durée et la réponse `/trace_attributes`, notamment les valeurs non finies [`backend/app/route_engine/adapters/outbound/valhalla_provider.py`]
+- [x] [Review][Patch] Imputer toute couverture d'attributs manquante à `inconnu` et garantir des proportions cohérentes [`backend/app/route_engine/domain/metrics.py`]
+- [x] [Review][Patch] Calculer les extrema du profil sans spread susceptible de dépasser la limite d'arguments JavaScript [`frontend/src/pages/Atelier.tsx`]
+- [x] [Review][Patch] Vérifier la persistance JSONB complète des catégories, du profil et des montées [`backend/tests/route_engine/test_routes_router_integration.py`]
+- [x] [Review][Patch] Vérifier la fermeture et la remise à zéro du singleton d'élévation au shutdown [`backend/tests/route_engine/test_elevation_bootstrap.py`]
+- [x] [Review][Defer] Durcir la validation de la structure historique de la réponse `/route` et de ses legs [`backend/app/route_engine/adapters/outbound/valhalla_provider.py:118`] — deferred, pre-existing
+
 **Acceptance Criteria:**
 - Given un parcours calculé existe, when je consulte la bulle en état compact, then je vois distance, D+ et durée.
 - Given je déploie la bulle, when le détail s'affiche, then je vois D- et difficulté en plus.
@@ -94,6 +105,7 @@ context:
 - `cd backend && uv run pytest -q` -- nouveaux tests `metrics.py`/`calculate_route`/adaptateurs passent, aucune régression
 - `cd frontend && npm run test -- --run` -- nouveaux scénarios `BulleMetriques` passent
 - `cd frontend && npx tsc -b && npx oxlint` -- aucune erreur
+- Revue CR 2-5 : 75 tests backend isolés et 76 tests frontend passent ; compilation Python/TypeScript, oxlint et `git diff --check` passent. Le test d'intégration PostgreSQL enrichi est bloqué localement faute de service sur `localhost:5433`.
 
 **Manual checks (if no CLI):**
 - Parcours routé avec dénivelé : bulle compacte affiche distance/D+/durée ; déployée ajoute D-/difficulté.

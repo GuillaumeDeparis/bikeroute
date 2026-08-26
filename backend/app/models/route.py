@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from geoalchemy2 import Geometry
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,6 +27,18 @@ def _utcnow() -> datetime:
 
 class Route(Base):
     __tablename__ = "routes"
+    __table_args__ = (
+        CheckConstraint("statut IN ('routed', 'non_route')", name="ck_routes_statut"),
+        CheckConstraint(
+            "(statut = 'routed' AND geometry IS NOT NULL) OR (statut = 'non_route' AND geometry IS NULL)",
+            name="ck_routes_statut_geometry",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(points) = 'object' AND jsonb_typeof(points->'input') = 'array' "
+            "AND jsonb_typeof(points->'unrouted_indices') = 'array'",
+            name="ck_routes_points_shape",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid7)
     account_id: Mapped[uuid.UUID] = mapped_column(

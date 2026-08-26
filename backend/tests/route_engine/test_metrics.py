@@ -101,17 +101,45 @@ _HUIT_CENTS_M_EST = Coordinate(lat=45.0, lon=5.0 + 0.012739 * 0.8)
 _DEUX_CENTS_M_EST = Coordinate(lat=45.0, lon=5.0 + 0.012739 * 0.2)
 
 
-def test_revetements_et_categories_routieres_cle_inconnu_toujours_presente_meme_a_zero() -> None:
+def test_sans_attribut_toute_la_distance_est_inconnue() -> None:
     """Aucun `surface_segments`/`road_class_segments` fourni (défaut `()`,
     ex. valeur par défaut de `RouteResult`) : la clé "inconnu" reste
-    présente, à `0.0` -- jamais un dict vide (NFR-10)."""
+    présente et couvre 100 % du tracé -- jamais un dict vide ni 0 % inconnu
+    quand aucune classification n'est disponible (NFR-10)."""
     depart = Coordinate(lat=45.0, lon=5.0)
     milieu = Coordinate(lat=45.0, lon=5.01)
 
     metriques = calculer_metriques((depart, milieu), (0.0, 0.0), duree_s=0.0)
 
-    assert metriques.revetements == {"inconnu": 0.0}
-    assert metriques.categories_routieres == {"inconnu": 0.0}
+    assert metriques.revetements == {"inconnu": 1.0}
+    assert metriques.categories_routieres == {"inconnu": 1.0}
+
+
+def test_distance_non_couverte_par_les_segments_est_imputee_a_inconnu() -> None:
+    depart = Coordinate(lat=45.0, lon=5.0)
+    geometry = (depart, _UN_KM_EST)
+    distance_m = calculer_metriques(geometry, (0.0, 0.0), duree_s=0.0).distance_m
+    segments = (SegmentAttribut(distance_m=distance_m * 0.75, valeur="asphalte"),)
+
+    metriques = calculer_metriques(geometry, (0.0, 0.0), duree_s=0.0, surface_segments=segments)
+
+    assert metriques.revetements == {"inconnu": pytest.approx(0.25), "asphalte": pytest.approx(0.75)}
+    assert sum(metriques.revetements.values()) == pytest.approx(1.0)
+
+
+def test_segments_plus_longs_que_haversine_sont_normalises() -> None:
+    depart = Coordinate(lat=45.0, lon=5.0)
+    geometry = (depart, _UN_KM_EST)
+    segments = (
+        SegmentAttribut(distance_m=800.0, valeur="asphalte"),
+        SegmentAttribut(distance_m=400.0, valeur="gravel"),
+    )
+
+    metriques = calculer_metriques(geometry, (0.0, 0.0), duree_s=0.0, surface_segments=segments)
+
+    assert metriques.revetements["asphalte"] == pytest.approx(2 / 3)
+    assert metriques.revetements["gravel"] == pytest.approx(1 / 3)
+    assert sum(metriques.revetements.values()) == pytest.approx(1.0)
 
 
 def test_revetement_partiellement_inconnu_reste_explicite() -> None:
@@ -223,3 +251,25 @@ def test_descente_nest_jamais_comptee_comme_montee() -> None:
     metriques = calculer_metriques(geometry, (200.0, 100.0), duree_s=0.0)
 
     assert metriques.montees_significatives == ()
+
+
+def test_denivele_ignore_les_micro_variations_inferieures_a_trois_metres() -> None:
+    points = tuple(Coordinate(lat=45.0, lon=5.0 + index * 0.001) for index in range(4))
+
+    metriques = calculer_metriques(points, (100.0, 102.9, 100.1, 103.1), duree_s=60.0)
+
+    assert metriques.denivele_positif_m == pytest.approx(3.0)
+    assert metriques.denivele_negatif_m == 0.0
+
+
+def test_petit_creux_de_trois_metres_ne_fragmente_pas_une_montee() -> None:
+    depart = Coordinate(lat=45.0, lon=5.0)
+    tiers = Coordinate(lat=45.0, lon=5.0 + 0.012739 / 3)
+    deux_tiers = Coordinate(lat=45.0, lon=5.0 + 2 * 0.012739 / 3)
+    geometry = (depart, tiers, deux_tiers, _UN_KM_EST)
+
+    metriques = calculer_metriques(geometry, (100.0, 120.0, 117.0, 150.0), duree_s=600.0)
+
+    assert len(metriques.montees_significatives) == 1
+    assert metriques.montees_significatives[0].distance_m == pytest.approx(metriques.distance_m)
+    assert metriques.montees_significatives[0].denivele_m == pytest.approx(50.0)

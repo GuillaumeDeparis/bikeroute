@@ -15,6 +15,7 @@ import {
   type PointProfil,
   type ResultatAdresse,
 } from '../api/client'
+import { inverserPoints, type PointAtelier, type Role, type Topologie } from './Atelier.inversion'
 import './Atelier.css'
 
 // Bundler (Vite) : les icônes par défaut de Leaflet pointent vers des chemins
@@ -29,32 +30,7 @@ L.Icon.Default.mergeOptions({ iconRetinaUrl, iconUrl, shadowUrl })
 const CENTRE_PAR_DEFAUT: [number, number] = [46.6, 2.4]
 const ZOOM_PAR_DEFAUT = 6
 const ZOOM_SUR_POINT = 13
-
-type Role = 'depart' | 'point_de_passage' | 'etape_utilisateur' | 'destination'
-
-/** Boucle : pas de Destination, chaque point posé après le départ est un
- * Point de passage, fermeture par répétition du départ en fin de liste.
- * Aller simple : comportement 2.1 inchangé. Multi-étapes : chaque point naît
- * Point de passage puis se qualifie une fois via le sélecteur inline (cf.
- * Design Notes de la spec). */
-type Topologie = 'boucle' | 'aller_simple' | 'multi_etapes'
-
-interface PointAtelier {
-  // Identifiant stable (pas le seul `role`, partagé par plusieurs Points de
-  // passage en boucle/multi-étapes) -- clé React et bandeau non-routé.
-  id: string
-  role: Role
-  lat: number
-  lon: number
-  nonRoute: boolean
-  // Numéro affiché (Point de passage/Étape utilisateur uniquement) : assigné
-  // une seule fois à la création, jamais recalculé depuis la position dans
-  // `points` -- un réordonnancement (boutons ↑/↓, inversion) déplace le
-  // point, jamais son numéro, qui resterait sinon perturbant à suivre.
-  // `undefined` pour Départ/Destination (rôle déjà unique, pas besoin d'un
-  // numéro) et effacé si un point change vers l'un de ces deux rôles.
-  numero?: number
-}
+const MAX_POINTS_CALCUL = 50
 
 /** Numéro à attribuer à un nouveau Point de passage/Étape utilisateur :
  * toujours strictement supérieur à tout numéro déjà utilisé, jamais réutilisé
@@ -76,6 +52,11 @@ function libelleRole(role: Role): string {
     case 'destination':
       return 'Destination'
   }
+}
+
+function libellePointAccessible(point: PointAtelier): string {
+  const numero = point.numero !== undefined ? ` ${point.numero}` : ''
+  return `${libelleRole(point.role)}${numero}`
 }
 
 // Cache module-level (pas de useMemo, plusieurs points/positions dans une
@@ -286,9 +267,7 @@ function construireCourbeAltimetrique(profil: PointProfil[], largeur: number, ha
     return ''
   }
   const distanceMaxM = profil[profil.length - 1].distanceM
-  const elevations = profil.map((point) => point.elevationM)
-  const elevationMinM = Math.min(...elevations)
-  const elevationMaxM = Math.max(...elevations)
+  const { min: elevationMinM, max: elevationMaxM } = extremaProfil(profil)
   const amplitudeM = elevationMaxM - elevationMinM
 
   function x(distanceM: number): number {
@@ -310,6 +289,16 @@ function construireCourbeAltimetrique(profil: PointProfil[], largeur: number, ha
     .join(' ')
 }
 
+function extremaProfil(profil: PointProfil[]): { min: number; max: number } {
+  return profil.reduce(
+    (extrema, point) => ({
+      min: Math.min(extrema.min, point.elevationM),
+      max: Math.max(extrema.max, point.elevationM),
+    }),
+    { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY },
+  )
+}
+
 /** Résumé textuel du profil pour lecteur d'écran (revue post-implémentation,
  * spec-2-5) : la courbe SVG ci-dessous est décorative (`aria-hidden`) --
  * contrairement aux listes texte adjacentes (revêtements/montées), elle ne
@@ -318,9 +307,9 @@ function construireCourbeAltimetrique(profil: PointProfil[], largeur: number, ha
  * Boundaries) ; seules les altitudes min/max, dérivées pour l'affichage,
  * sont calculées ici. */
 function resumeProfilPourLecteurEcran(profil: PointProfil[], denivelePositifM: number): string {
-  const elevations = profil.map((point) => point.elevationM)
-  const min = Math.round(Math.min(...elevations))
-  const max = Math.round(Math.max(...elevations))
+  const extrema = extremaProfil(profil)
+  const min = Math.round(extrema.min)
+  const max = Math.round(extrema.max)
   return `Altitude minimale ${min} m, altitude maximale ${max} m, dénivelé positif total ${formatDenivele(denivelePositifM)}.`
 }
 
@@ -456,15 +445,19 @@ function BulleMetriques({
 
 interface AtelierProps {
   onRetourAccueil: () => void
+  onSessionExpiree?: () => void
 }
 
-export function Atelier({ onRetourAccueil }: AtelierProps) {
+export function Atelier({ onRetourAccueil, onSessionExpiree }: AtelierProps) {
   const [points, setPoints] = useState<PointAtelier[]>([])
   // Choix imposé par le Contextual menu dès le départ posé -- jamais de
   // valeur par défaut implicite (cf. Boundaries de la spec-2-2).
   const [topologie, setTopologie] = useState<Topologie | undefined>(undefined)
   const [trace, setTrace] = useState<PointCoordonnee[]>([])
   const [calculEnCours, setCalculEnCours] = useState(false)
+  // Une inversion est une intention de recalcul même si les coordonnées
+  // restent identiques (Boucle à un seul passage ou points superposés).
+  const [revisionInversion, setRevisionInversion] = useState(0)
   const [erreurCalcul, setErreurCalcul] = useState<string | undefined>(undefined)
   // Dernières métriques valides (spec-2-5) : suit exactement le même patron
   // que `trace` -- ni effacées pendant un recalcul ("Mise à jour…" les
@@ -503,6 +496,12 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   const dernierPoint = points[points.length - 1]
   const peutQualifierDernierPoint =
     topologie === 'multi_etapes' && !destination && dernierPoint !== undefined && dernierPoint.role === 'point_de_passage'
+  // La fermeture d'une boucle ajoute le Départ une seconde fois au payload :
+  // elle ne peut donc contenir que 49 points visibles, contre 50 pour les
+  // autres topologies (borne du schéma HTTP).
+  const limitePointsAtteinte =
+    (topologie === 'boucle' && points.length >= MAX_POINTS_CALCUL - 1) ||
+    (topologie !== undefined && topologie !== 'boucle' && points.length >= MAX_POINTS_CALCUL)
 
   // Liste ordonnée de points à envoyer au moteur de calcul, propre à chaque
   // topologie (le moteur reste topologie-agnostique, cf. Design Notes) :
@@ -544,6 +543,10 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       // l'impose avant tout point supplémentaire (jamais de valeur par
       // défaut implicite, cf. Boundaries).
       if (!topologie) {
+        return precedent
+      }
+      const maximumVisible = topologie === 'boucle' ? MAX_POINTS_CALCUL - 1 : MAX_POINTS_CALCUL
+      if (precedent.length >= maximumVisible) {
         return precedent
       }
       if (topologie === 'boucle') {
@@ -616,7 +619,13 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // seule fois -- pas de ré-édition ultérieure, cf. Design Notes).
   function qualifierDernierPoint(role: 'etape_utilisateur' | 'destination') {
     setPoints((precedent) => {
-      if (precedent.length === 0) {
+      const dernier = precedent.at(-1)
+      if (
+        topologie !== 'multi_etapes' ||
+        destination !== undefined ||
+        dernier === undefined ||
+        dernier.role !== 'point_de_passage'
+      ) {
         return precedent
       }
       const dernierIndex = precedent.length - 1
@@ -633,7 +642,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // `nonRoute`) est laissé tel quel -- le recalcul déclenché juste après
   // rafraîchira `nonRoute` avec la nouvelle position (cf. matrice I/O).
   function deplacerPoint(id: string, lat: number, lon: number) {
-    setPoints((precedent) => precedent.map((point) => (point.id === id ? { ...point, lat, lon } : point)))
+    setPoints((precedent) =>
+      precedent.map((point) => (point.id === id ? { ...point, lat, lon, nonRoute: false } : point)),
+    )
   }
 
   // Réordonnancement par boutons ↑ (`decalage: -1`) / ↓ (`decalage: +1`),
@@ -729,6 +740,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
     // effacées ci-dessus.
     setBulleMetriquesDepliee(false)
     setErreurCalcul(undefined)
+    setCalculEnCours(false)
   }
 
   // Inversion du sens de parcours (spec-2-4) : Boucle et Aller simple
@@ -745,48 +757,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
   // Les `id` de chaque point sont conservés -- seuls l'ordre et, en aller
   // simple, le rôle des deux extrémités changent (cf. Boundaries).
   function inverserSens() {
-    setPoints((precedent) => {
-      if (topologie === 'boucle') {
-        const departActuel = precedent.find((point) => point.role === 'depart')
-        const pointsDePassageActuels = precedent.filter(
-          (point) => point.role === 'point_de_passage' || point.role === 'etape_utilisateur',
-        )
-        // Départ fixe (ferme la boucle, géré à part par `pointsCalcul`) :
-        // un `reverse()` global l'inverserait aussi, ce qui n'a pas de sens
-        // pour une boucle -- seuls les Points de passage sont inversés (cf.
-        // Design Notes).
-        if (!departActuel || pointsDePassageActuels.length === 0) {
-          return precedent
-        }
-        return [departActuel, ...pointsDePassageActuels.slice().reverse()]
-      }
-      if (topologie === 'aller_simple') {
-        const destinationActuelle = precedent.find((point) => point.role === 'destination')
-        if (!destinationActuelle) {
-          return precedent
-        }
-        // Départ et Destination échangent leurs rôles (positions), les
-        // points de passage intermédiaires sont inversés en ordre tout en
-        // conservant leur rôle (cf. Boundaries).
-        const inverse = [...precedent].reverse()
-        const dernierIndex = inverse.length - 1
-        return inverse.map((point, index) => {
-          // Départ/Destination n'affichent jamais de numéro -- effacement
-          // défensif (les deux extrémités n'en portent déjà jamais, mais un
-          // numéro ne doit jamais pouvoir s'afficher à côté de ces rôles).
-          if (index === 0) {
-            return { ...point, role: 'depart', numero: undefined }
-          }
-          if (index === dernierIndex) {
-            return { ...point, role: 'destination', numero: undefined }
-          }
-          return point
-        })
-      }
-      // Multi-étapes : hors scope des AC de cette story (cf. Boundaries) --
-      // le bouton n'est de toute façon jamais affiché pour cette topologie.
-      return precedent
-    })
+    if (!topologie) return
+    setPoints((precedent) => inverserPoints(precedent, topologie))
+    setRevisionInversion((precedente) => precedente + 1)
   }
 
   // Bouton "Inverser" visible seulement Boucle (≥1 Point de passage) / Aller
@@ -812,6 +785,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       setTrace((precedent) => (precedent.length > 0 ? [] : precedent))
       setMetriques(undefined)
       setErreurCalcul(undefined)
+      setCalculEnCours(false)
       return
     }
     const aEnvoyer = pointsCalcul
@@ -834,6 +808,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         if (annule) {
           return
         }
+        if (resultat.statut === 'non_route' && resultat.pointsNonRoutes.length === 0) {
+          throw new Error("Réponse de calcul incohérente : aucun point non routé n'est identifié.")
+        }
         const nonRoutes = new Set(resultat.pointsNonRoutes.map((point) => `${point.lat}:${point.lon}`))
         setPoints((precedent) =>
           precedent.map((point) => ({ ...point, nonRoute: nonRoutes.has(`${point.lat}:${point.lon}`) })),
@@ -854,7 +831,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         // Le dernier tracé valide (`trace`) n'est jamais effacé ici : un
         // échec de recalcul ne doit pas faire disparaître un tracé affiché
         // avec succès juste avant (cf. matrice I/O).
-        if (error instanceof ApiError) {
+        if (error instanceof ApiError && error.status === 401) {
+          onSessionExpiree?.()
+        } else if (error instanceof ApiError) {
           setErreurCalcul(error.message)
         } else {
           setErreurCalcul("Une erreur inattendue s'est produite. Réessayez plus tard.")
@@ -873,7 +852,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
       controleur.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cleCalcul])
+  }, [cleCalcul, revisionInversion])
 
   async function lancerRecherche(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -899,9 +878,13 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
         return
       }
       setResultatsRecherche(undefined)
-      setErreurRecherche(
-        error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
-      )
+      if (error instanceof ApiError && error.status === 401) {
+        onSessionExpiree?.()
+      } else {
+        setErreurRecherche(
+          error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
+        )
+      }
     } finally {
       if (!controleur.signal.aborted) {
         setRechercheEnCours(false)
@@ -984,6 +967,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                 Multi-étapes
               </button>
             </div>
+            <button type="button" className="atelier__actions-supprimer" onClick={() => supprimerPoint(depart.id)}>
+              Supprimer le Départ
+            </button>
           </div>
         )}
 
@@ -1008,6 +994,9 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                 Placez des points de passage, puis qualifiez l'un d'eux « Destination » pour déclencher le calcul.
               </p>
             )}
+            {limitePointsAtteinte && (
+              <p role="status">Limite de {MAX_POINTS_CALCUL} points atteinte pour ce parcours.</p>
+            )}
 
             {/* Boucle (≥1 Point de passage) / Aller simple (Destination
                 qualifiée) uniquement -- jamais Multi-étapes, hors scope des
@@ -1023,11 +1012,24 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                 spec-2-3), pas seulement une fois un second point posé. */}
             {points.length > 0 && (
               <ul className="atelier__points">
-                {points.map((point) => {
+                {points.map((point, index) => {
                   // Réordonnancement jamais sur Départ ni Destination
                   // (positions fixes, cf. Boundaries) -- boutons ↑/↓
                   // affichés uniquement pour les autres rôles.
                   const peutReordonner = point.role !== 'depart' && point.role !== 'destination'
+                  const voisinPrecedent = points[index - 1]
+                  const voisinSuivant = points[index + 1]
+                  const peutMonter =
+                    peutReordonner &&
+                    voisinPrecedent !== undefined &&
+                    voisinPrecedent.role !== 'depart' &&
+                    voisinPrecedent.role !== 'destination'
+                  const peutDescendre =
+                    peutReordonner &&
+                    voisinSuivant !== undefined &&
+                    voisinSuivant.role !== 'depart' &&
+                    voisinSuivant.role !== 'destination'
+                  const libellePoint = libellePointAccessible(point)
                   return (
                     <li key={point.id}>
                       {libelleRole(point.role)}
@@ -1042,13 +1044,23 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                           </button>
                         </span>
                       )}
-                      <span className="atelier__actions" role="group" aria-label="Actions sur ce point">
+                      <span className="atelier__actions" role="group" aria-label={`Actions sur ${libellePoint}`}>
                         {peutReordonner && (
                           <>
-                            <button type="button" onClick={() => reordonnerPoint(point.id, -1)} aria-label="Monter">
+                            <button
+                              type="button"
+                              onClick={() => reordonnerPoint(point.id, -1)}
+                              aria-label={`Monter ${libellePoint}`}
+                              disabled={!peutMonter}
+                            >
                               ↑
                             </button>
-                            <button type="button" onClick={() => reordonnerPoint(point.id, 1)} aria-label="Descendre">
+                            <button
+                              type="button"
+                              onClick={() => reordonnerPoint(point.id, 1)}
+                              aria-label={`Descendre ${libellePoint}`}
+                              disabled={!peutDescendre}
+                            >
                               ↓
                             </button>
                           </>
@@ -1057,7 +1069,7 @@ export function Atelier({ onRetourAccueil }: AtelierProps) {
                           type="button"
                           className="atelier__actions-supprimer"
                           onClick={() => supprimerPoint(point.id)}
-                          aria-label="Supprimer ce point"
+                          aria-label={`Supprimer ${libellePoint}`}
                         >
                           Supprimer
                         </button>

@@ -90,10 +90,24 @@ context:
 
 **Manual checks (if no CLI):**
 - Poser un départ, choisir Boucle, poser 1 point de passage : tracé fermé départ→point→départ affiché.
-- Poser un départ, choisir Multi-étapes, poser 2 points de passage puis qualifier le dernier Destination : tracé calculé sur les 4 points dans l'ordre.
+- Poser un départ, choisir Multi-étapes, poser 2 points de passage puis qualifier le dernier Destination : tracé calculé sur les 3 points dans l'ordre.
 - Poser un départ, choisir Aller simple, poser 1 destination : comportement identique à avant (régression).
 
 ## Suggested Review Order
+
+### Review Findings
+
+- [x] [Review][Patch] Rendre la réinitialisation complète accessible hors du seul bandeau « non routé » [frontend/src/pages/Atelier.tsx:408]
+- [x] [Review][Patch] Borner les points ajoutables selon la topologie pour ne jamais dépasser les 50 coordonnées backend [frontend/src/pages/Atelier.tsx:169]
+- [x] [Review][Patch] Revalider dans l’updater les invariants avant de qualifier le dernier point [frontend/src/pages/Atelier.tsx:206]
+- [x] [Review][Patch] Ne vider la recherche que lorsqu’un résultat a effectivement posé un point [frontend/src/pages/Atelier.tsx:333]
+- [x] [Review][Patch] Valider types, nombre, contenu et continuité des legs Valhalla avant concaténation [backend/app/route_engine/adapters/outbound/valhalla_provider.py:105]
+- [x] [Review][Patch] Tester explicitement les bornes HTTP de 50 points acceptés et 51 rejetés [backend/tests/route_engine/test_routes_router_integration.py:62]
+- [x] [Review][Patch] Couvrir les legs Valhalla vides, manquants, mal typés, discontinus ou incomplets [backend/tests/route_engine/test_valhalla_provider_contract.py:105]
+- [x] [Review][Patch] Couvrir les résultats non routés et erreurs fournisseur des flux Boucle et Multi-étapes [frontend/src/pages/Atelier.test.tsx:337]
+- [x] [Review][Patch] Tester la pose de points via un résultat de recherche pour chaque topologie [frontend/src/pages/Atelier.test.tsx:160]
+- [x] [Review][Patch] Corriger le contrôle manuel Multi-étapes qui annonce quatre points au lieu de trois [spec-2-2-choisir-et-représenter-le-type-de-parcours.md:93]
+- [x] [Review][Defer] Remplacer l’appariement des points non routés par coordonnée par un contrat positionnel non ambigu [frontend/src/pages/Atelier.tsx:261] — deferred, pre-existing
 
 **Choix de topologie (Atelier)**
 

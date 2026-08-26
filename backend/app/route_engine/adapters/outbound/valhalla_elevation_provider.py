@@ -8,6 +8,8 @@ patron d'erreurs/injection de client/singleton identique."""
 
 from __future__ import annotations
 
+from math import isfinite
+
 import httpx
 
 from ...application.ports import ElevationProviderError
@@ -39,8 +41,12 @@ class ValhallaElevationProvider:
 
         try:
             body = response.json()
+            if not isinstance(body, dict):
+                raise TypeError("corps non objet")
             heights = body["height"]
-        except (ValueError, KeyError) as exc:
+            if not isinstance(heights, list):
+                raise TypeError("altitudes non listées")
+        except (ValueError, KeyError, TypeError) as exc:
             raise ElevationProviderError("Réponse Valhalla (élévation) inattendue.") from exc
 
         if len(heights) != len(points):
@@ -58,8 +64,9 @@ class ValhallaElevationProvider:
             # `bool` est une sous-classe d'`int` en Python : `float(True)`
             # vaudrait silencieusement `1.0` sans ce garde-fou explicite --
             # rejeté au même titre qu'une altitude non numérique.
-            if any(isinstance(height, bool) for height in heights):
-                raise ValueError("altitude booléenne invalide")
-            return tuple(float(height) for height in heights)
+            elevations = tuple(float(height) for height in heights if not isinstance(height, bool))
+            if len(elevations) != len(heights) or any(not isfinite(elevation) for elevation in elevations):
+                raise ValueError("altitude booléenne ou non finie")
+            return elevations
         except (TypeError, ValueError) as exc:
             raise ElevationProviderError("Réponse Valhalla (élévation) inattendue (altitude non numérique).") from exc

@@ -3,7 +3,7 @@ services:
     # PostGIS 3.6 sur PostgreSQL 18 (AD-3 : géométrie des tracés persistée en
     # PostGIS, SRID 4326) -- même image de base que `postgres:18.4`, donc
     # mêmes conventions de volume/healthcheck ci-dessous.
-    image: postgis/postgis:18-3.6
+    image: postgis/postgis:18-3.6@sha256:8d67cc8fe5f45808d54fe95cc210b05ce6b3ea3682e9a97c36362f3e1b8ff939
     environment:
       POSTGRES_USER: bikeroute
       POSTGRES_PASSWORD: bikeroute
@@ -55,7 +55,7 @@ services:
 
   valhalla:
     # Épinglée à la version documentée par ARCHITECTURE-SPINE.md (Stack).
-    image: ghcr.io/valhalla/valhalla:3.8.3
+    image: ghcr.io/valhalla/valhalla:3.8.3@sha256:70b45295d81035e3562e1bbf996a28d5fc55e1ccc5d7e3fff9f297d3b1a1359f
     volumes:
       # Corpus OSM minimal et déterministe (généré depuis corpus.osm.xml,
       # voir ce répertoire) : une petite boucle de voirie cyclable, suffisante
@@ -92,7 +92,7 @@ services:
       retries: 30
 
   frontend:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32
     working_dir: /app
     volumes:
       - ./frontend:/app

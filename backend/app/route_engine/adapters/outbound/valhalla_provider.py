@@ -14,6 +14,8 @@ contrat) : un point hors réseau renvoie `"edges": []` sur `/locate`.
 
 from __future__ import annotations
 
+from math import isfinite
+
 import httpx
 
 from ...domain.models import Coordinate, RouteResult, SegmentAttribut
@@ -32,6 +34,8 @@ _COSTING_OPTIONS = {"bicycle": {"bicycle_type": "road"}}
 def _decode_polyline6(encoded: str) -> tuple[Coordinate, ...]:
     """Décode une polyligne encodée précision 6 (format `shape` de Valhalla,
     variante à 1e6 de l'algorithme Google Encoded Polyline)."""
+    if not isinstance(encoded, str):
+        raise RoutingProviderError("Forme du tracé invalide.")
     coords: list[Coordinate] = []
     index = 0
     lat = 0
@@ -44,6 +48,8 @@ def _decode_polyline6(encoded: str) -> tuple[Coordinate, ...]:
                 result = 0
                 while True:
                     byte = ord(encoded[index]) - 63
+                    if byte < 0 or byte > 0x3F or shift > 60:
+                        raise ValueError("groupe de polyline invalide")
                     index += 1
                     result |= (byte & 0x1F) << shift
                     shift += 5
@@ -55,7 +61,7 @@ def _decode_polyline6(encoded: str) -> tuple[Coordinate, ...]:
                 else:
                     lon += delta
             coords.append(Coordinate(lat=lat / 1e6, lon=lon / 1e6))
-    except IndexError as exc:
+    except (IndexError, ValueError) as exc:
         # Chaîne tronquée/malformée (dernier groupe d'octets incomplet) :
         # traité comme une réponse fournisseur invalide, jamais comme un
         # crash -- même contrat que les autres échecs de ce module.
@@ -106,25 +112,25 @@ class ValhallaRoutingProvider:
         except httpx.HTTPError as exc:
             raise RoutingProviderError("Valhalla injoignable.") from exc
 
-        if response.status_code >= 500:
-            raise RoutingProviderError(f"Valhalla a répondu {response.status_code}.")
         if response.status_code >= 400:
-            # Course rare : un point a pu devenir non routable entre le
-            # pré-contrôle `/locate` ci-dessus et cet appel. Traité comme un
-            # résultat "non routé" (jamais un segment direct trompeur),
-            # plutôt que comme une erreur fournisseur.
-            return RouteResult(geometry=(), unrouted_points=tuple(points), provider="valhalla", version=version)
+            raise RoutingProviderError(f"Valhalla a répondu {response.status_code}.")
 
         try:
             body = response.json()
         except ValueError as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (corps non-JSON).") from exc
         try:
+            if not isinstance(body, dict) or not isinstance(body.get("trip"), dict):
+                raise TypeError("corps ou trip invalide")
             legs = body["trip"]["legs"]
+            if not isinstance(legs, list) or any(not isinstance(leg, dict) for leg in legs):
+                raise TypeError("legs invalides")
+            if len(legs) != len(points) - 1:
+                raise ValueError("nombre de legs incompatible avec les points demandés")
             shapes = [leg["shape"] for leg in legs]
-            if not shapes:
+            if not shapes or any(not isinstance(shape, str) for shape in shapes):
                 raise KeyError("legs")
-        except (KeyError, IndexError) as exc:
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (forme du tracé absente).") from exc
 
         # `trip.summary.time` (secondes) : ignoré jusqu'ici, désormais lu pour
@@ -138,7 +144,7 @@ class ValhallaRoutingProvider:
             # vaudrait silencieusement `1.0` sans ce garde-fou explicite.
             # Rejeté au même titre qu'une valeur négative (impossible pour
             # une durée de trajet) -- jamais une conversion silencieuse.
-            if isinstance(temps, bool) or float(temps) < 0:
+            if isinstance(temps, bool) or not isfinite(float(temps)) or float(temps) < 0:
                 raise ValueError("durée du trajet invalide")
             duration_s = float(temps)
         except (KeyError, TypeError, ValueError) as exc:
@@ -152,6 +158,10 @@ class ValhallaRoutingProvider:
         geometry: list[Coordinate] = []
         for index, shape in enumerate(shapes):
             decoded = _decode_polyline6(shape)
+            if len(decoded) < 2:
+                raise RoutingProviderError("Réponse Valhalla inattendue (leg vide ou dégénéré).")
+            if geometry and decoded[0] != geometry[-1]:
+                raise RoutingProviderError("Réponse Valhalla inattendue (legs discontinus).")
             geometry.extend(decoded[1:] if index > 0 else decoded)
 
         surface_segments, road_class_segments = self._attributs_voie(tuple(geometry))
@@ -192,8 +202,12 @@ class ValhallaRoutingProvider:
 
         try:
             body = response.json()
+            if not isinstance(body, dict):
+                raise TypeError("corps non objet")
             edges = body["edges"]
-        except (ValueError, KeyError) as exc:
+            if not isinstance(edges, list):
+                raise TypeError("segments non listés")
+        except (ValueError, KeyError, TypeError) as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (attributs de voie absents).") from exc
 
         surface_segments: list[SegmentAttribut] = []
@@ -214,7 +228,11 @@ class ValhallaRoutingProvider:
                 # altitudes de `ValhallaElevationProvider`. Une longueur
                 # négative n'a de toute façon aucun sens (revue post-
                 # implémentation).
-                if isinstance(longueur_brute, bool) or float(longueur_brute) < 0:
+                if (
+                    isinstance(longueur_brute, bool)
+                    or not isfinite(float(longueur_brute))
+                    or float(longueur_brute) < 0
+                ):
                     raise ValueError("longueur de segment invalide")
                 # `edges[].length` est en kilomètres côté Valhalla -- converti
                 # en mètres à cette frontière (AD-11), jamais propagé tel quel.
@@ -238,29 +256,22 @@ class ValhallaRoutingProvider:
         except httpx.HTTPError as exc:
             raise RoutingProviderError("Valhalla injoignable.") from exc
 
-        if response.status_code >= 500:
-            raise RoutingProviderError(f"Valhalla a répondu {response.status_code}.")
         if response.status_code >= 400:
-            # Réponse `/locate` en échec pour l'ensemble de la requête : on
-            # ne peut affirmer qu'aucun point n'est rattachable, mais on ne
-            # peut pas non plus poursuivre vers `/route` -- traité comme
-            # "tous non routés" plutôt que comme une erreur fournisseur, par
-            # cohérence avec le traitement de `/route` ci-dessus.
-            return list(points)
+            raise RoutingProviderError(f"Valhalla a répondu {response.status_code}.")
 
         try:
             body = response.json()
         except ValueError as exc:
             raise RoutingProviderError("Réponse Valhalla inattendue (corps non-JSON).") from exc
 
-        if len(body) != len(points):
+        if not isinstance(body, list) or len(body) != len(points) or any(not isinstance(entry, dict) for entry in body):
             # Désaccord de longueur entre la requête et la réponse `/locate` :
             # une association point<->entrée par position serait alors
             # arbitraire, exactement le risque de statut/segment trompeur que
             # la story interdit. Traité comme une erreur fournisseur plutôt
             # que comme un résultat métier.
             raise RoutingProviderError(
-                f"Réponse Valhalla inattendue (`/locate` a renvoyé {len(body)} entrée(s) pour {len(points)} point(s))."
+                "Réponse Valhalla inattendue (`/locate` n'a pas renvoyé une entrée objet par point)."
             )
 
         return [point for point, entry in zip(points, body, strict=True) if not entry.get("edges")]
@@ -271,8 +282,11 @@ class ValhallaRoutingProvider:
         try:
             response = self._client.get("/status")
             response.raise_for_status()
-            self._version_cache = str(response.json().get("version", "inconnue"))
-        except (httpx.HTTPError, ValueError):
+            body = response.json()
+            if not isinstance(body, dict):
+                raise TypeError("statut Valhalla invalide")
+            self._version_cache = str(body.get("version", "inconnue"))
+        except (httpx.HTTPError, TypeError, ValueError):
             # La version n'est qu'informative (traçabilité/debug) : ni son
             # indisponibilité réseau/HTTP, ni un corps non-JSON inattendu, ne
             # doivent jamais empêcher un calcul par ailleurs réussi.

@@ -7,6 +7,7 @@ ses tests s'exécutent sans infrastructure.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +20,8 @@ class Coordinate:
     lon: float
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.lat) or not math.isfinite(self.lon):
+            raise ValueError("Les coordonnées doivent être finies.")
         if not (-90.0 <= self.lat <= 90.0):
             raise ValueError(f"Latitude hors bornes : {self.lat}")
         if not (-180.0 <= self.lon <= 180.0):

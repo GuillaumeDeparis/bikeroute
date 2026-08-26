@@ -21,10 +21,10 @@ from .models import Coordinate, SegmentAttribut
 # Incrémenté à chaque changement de méthode de calcul (distance, seuils de
 # difficulté, ...) -- persisté avec chaque tracé (`RouteMetrics.version`) pour
 # qu'un parcours ancien reste traçable jusqu'à la méthode qui l'a produit,
-# même si la méthode change ensuite (NFR-9). "2" : ajout des revêtements/
-# catégories routières, du profil et des montées significatives (spec-2-5,
-# complément FR-40).
-METRICS_VERSION = "2"
+# même si la méthode change ensuite (NFR-9). "3" : ajout d'un seuil de bruit
+# altimétrique de 3 m et normalisation de la couverture d'attributs après la
+# revue de la spec-2-5.
+METRICS_VERSION = "3"
 
 # Rayon moyen de la Terre (mètres), pour la distance haversine ci-dessous --
 # suffisant pour une distance de tracé cyclable (courte échelle), pas pour une
@@ -57,6 +57,7 @@ _SEUIL_TRES_DIFFICILE_M_PAR_KM = 35.0
 _MONTEE_DISTANCE_MIN_M = 500.0
 _MONTEE_PENTE_MIN_PCT = 3.0
 _MONTEE_DENIVELE_MIN_M = 50.0
+_BRUIT_ALTIMETRIQUE_M = 3.0
 
 
 def _distance_haversine_m(a: Coordinate, b: Coordinate) -> float:
@@ -95,7 +96,16 @@ def _proportions_par_segment(segments: tuple[SegmentAttribut, ...], distance_tot
         totaux[segment.valeur] = totaux.get(segment.valeur, 0.0) + segment.distance_m
     if distance_totale_m <= 0:
         return dict.fromkeys(totaux, 0.0)
-    return {valeur: distance / distance_totale_m for valeur, distance in totaux.items()}
+    distance_attribuee_m = sum(totaux.values())
+    if distance_attribuee_m < distance_totale_m:
+        totaux["inconnu"] += distance_totale_m - distance_attribuee_m
+        denominateur_m = distance_totale_m
+    else:
+        # Les longueurs d'arêtes Valhalla et la distance haversine utilisent
+        # deux mesures distinctes. En cas de léger dépassement, normaliser par
+        # la couverture d'attributs évite des proportions > 100 %.
+        denominateur_m = distance_attribuee_m
+    return {valeur: distance / denominateur_m for valeur, distance in totaux.items()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +174,9 @@ def _detecter_montees_significatives(profil: tuple[PointProfil, ...]) -> tuple[M
     montees: list[MonteeSignificative] = []
     debut = 0
     for i in range(1, len(profil)):
-        if profil[i].elevation_m > profil[i - 1].elevation_m:
+        # Plats et petits creux SRTM restent dans la même montée ; une baisse
+        # supérieure au seuil clôt réellement le segment continu.
+        if profil[i].elevation_m - profil[i - 1].elevation_m >= -_BRUIT_ALTIMETRIQUE_M:
             continue
         _evaluer_segment_montee(profil, debut, i - 1, montees)
         debut = i
@@ -202,7 +214,7 @@ def calculer_metriques(
     exactement une altitude par point de `geometry`, dans le même ordre
     (contrat `ElevationProvider`, AD-8). `surface_segments`/
     `road_class_segments` viennent de `RouteResult` (`/trace_attributes`,
-    NFR-10) -- défaut `()` : proportions vides sauf "inconnu" à `0.0`."""
+    NFR-10) -- défaut `()` : 100 % de la distance est alors `inconnu`."""
     if len(elevations) != len(geometry):
         raise ValueError(
             f"`elevations` ({len(elevations)}) et `geometry` ({len(geometry)}) doivent avoir la même longueur."
@@ -214,9 +226,9 @@ def calculer_metriques(
     denivele_negatif_m = 0.0
     for i in range(len(elevations) - 1):
         delta = elevations[i + 1] - elevations[i]
-        if delta > 0:
+        if delta >= _BRUIT_ALTIMETRIQUE_M:
             denivele_positif_m += delta
-        elif delta < 0:
+        elif delta <= -_BRUIT_ALTIMETRIQUE_M:
             denivele_negatif_m += -delta
 
     profil = _construire_profil(geometry, elevations)

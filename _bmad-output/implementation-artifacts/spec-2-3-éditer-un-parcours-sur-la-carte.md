@@ -102,6 +102,20 @@ context:
 
 ## Suggested Review Order
 
+### Review Findings
+
+- [x] [Review][Decision] Rendre le déplacement d’un point utilisable sans dispositif de pointage — résolu : la V1 assume explicitement le glisser souris/tactile comme unique interaction de déplacement ; aucune alternative clavier n’est ajoutée dans cette story.
+- [x] [Review][Patch] Remettre `calculEnCours` à faux lorsqu’une édition annule le calcul et rend le parcours incomplet ou vide [frontend/src/pages/Atelier.tsx:353]
+- [x] [Review][Patch] Permettre de supprimer le Départ seul avant même le choix d’une topologie [frontend/src/pages/Atelier.tsx:530]
+- [x] [Review][Patch] Invalider l’ancien état `nonRoute` dès qu’un point est déplacé [frontend/src/pages/Atelier.tsx:253]
+- [x] [Review][Patch] Masquer ou désactiver les actions Monter/Descendre impossibles aux bornes fixes [frontend/src/pages/Atelier.tsx:572]
+- [x] [Review][Patch] Donner aux actions de liste des noms accessibles identifiant le point ciblé [frontend/src/pages/Atelier.tsx:572]
+- [x] [Review][Patch] Autoriser le retour à la ligne des commandes d’édition sur panneau étroit [frontend/src/pages/Atelier.css:177]
+- [x] [Review][Patch] Tester l’annulation d’un calcul en vol suivie d’une suppression ou d’un reset [frontend/src/pages/Atelier.test.tsx:726]
+- [x] [Review][Patch] Tester la suppression du Départ seul avant choix de topologie [frontend/src/pages/Atelier.test.tsx:604]
+- [x] [Review][Patch] Couvrir le déplacement d’un point non routé et l’échec de son recalcul [frontend/src/pages/Atelier.test.tsx:537]
+- [x] [Review][Patch] Exercer le réordonnancement Descendre et vérifier l’ordre transmis au calcul [frontend/src/pages/Atelier.test.tsx:659]
+
 **Ajouter après un tracé existant**
 
 - Entrée : `insererAvantDernier`, utilitaire d'insertion partagé aller_simple/multi_etapes.

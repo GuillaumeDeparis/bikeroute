@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { Atelier } from './Atelier'
+import { inverserPoints, type PointAtelier } from './Atelier.inversion'
 import { ApiError, calculerParcours, rechercherAdresse, type ResultatParcours } from '../api/client'
 
 // `react-leaflet`/Leaflet ont besoin d'un vrai DOM avec dimensions (taille de
@@ -343,6 +344,38 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
 
       expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
     })
+
+    it('réponse non_route sans point identifié : conserve le tracé et affiche une erreur', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours)
+        .mockResolvedValueOnce(RESULTAT_ROUTE_DEFAUT)
+        .mockResolvedValueOnce({ ...RESULTAT_ROUTE_DEFAUT, id: 'r2', statut: 'non_route', geometrie: [], pointsNonRoutes: [] })
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
+      await screen.findByTestId('trace')
+      glisserMarqueur(45.76, 4.86, 45.9, 4.95)
+
+      expect(await screen.findByText(/erreur inattendue/i)).toBeInTheDocument()
+      expect(screen.getByTestId('trace')).toBeInTheDocument()
+    })
+
+    it('session expirée pendant le calcul : notifie l’application', async () => {
+      const user = userEvent.setup()
+      const onSessionExpiree = vi.fn()
+      vi.mocked(calculerParcours).mockRejectedValue(
+        new ApiError(401, { code: 'SESSION_INVALIDE', message: 'Session expirée.', details: {}, correlationId: 'abc' }),
+      )
+
+      render(<Atelier onRetourAccueil={vi.fn()} onSessionExpiree={onSessionExpiree} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+      cliquerCarte(45.76, 4.86)
+
+      await waitFor(() => expect(onSessionExpiree).toHaveBeenCalledOnce())
+    })
   })
 
   describe('Boucle', () => {
@@ -393,6 +426,40 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
 
       const trace = await screen.findByTestId('trace')
       expect(JSON.parse(trace.getAttribute('data-points') ?? '[]')).toHaveLength(3)
+    })
+
+    it('point non routé : affiche le bandeau sans tracé', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue({
+        ...RESULTAT_ROUTE_DEFAUT,
+        statut: 'non_route',
+        geometrie: [],
+        pointsNonRoutes: [{ lat: 45.76, lon: 4.86 }],
+      })
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Boucle' }))
+      cliquerCarte(45.76, 4.86)
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/non rattachable/)
+      expect(screen.queryByTestId('trace')).not.toBeInTheDocument()
+    })
+
+    it('borne frontend : garde une place pour le Départ répété dans le payload de boucle', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.0, 5.0)
+      await user.click(screen.getByRole('button', { name: 'Boucle' }))
+      for (let index = 1; index <= 49; index += 1) {
+        cliquerCarte(45.0 + index * 0.0001, 5.0 + index * 0.0001)
+      }
+
+      expect(screen.getAllByTestId('marqueur')).toHaveLength(49)
+      expect(screen.getByText(/Limite de 50 points atteinte/)).toBeInTheDocument()
+      await waitFor(() => expect(calculerParcours).toHaveBeenCalled())
+      expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toHaveLength(50)
     })
   })
 
@@ -460,7 +527,7 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
       expect(calculerParcours).not.toHaveBeenCalled()
       items = screen.getAllByRole('listitem')
       expect(items[1]).toHaveTextContent('Étape utilisateur')
-      expect(within(items[1]).queryByRole('button', { name: /Étape utilisateur|Destination/ })).not.toBeInTheDocument()
+      expect(within(items[1]).queryByRole('group', { name: 'Qualifier ce point' })).not.toBeInTheDocument()
 
       cliquerCarte(45.77, 4.87) // point de passage n°2 : devient le dernier point posé
       items = screen.getAllByRole('listitem')
@@ -468,7 +535,7 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
       expect(items[2]).toHaveTextContent('Point de passage')
       expect(within(items[2]).getByRole('button', { name: 'Destination' })).toBeInTheDocument()
       // Le point n°1, déjà qualifié, ne récupère pas de sélecteur.
-      expect(within(items[1]).queryByRole('button', { name: /Étape utilisateur|Destination/ })).not.toBeInTheDocument()
+      expect(within(items[1]).queryByRole('group', { name: 'Qualifier ce point' })).not.toBeInTheDocument()
 
       await user.click(within(items[2]).getByRole('button', { name: 'Destination' }))
 
@@ -498,6 +565,58 @@ describe('Atelier — matrice I/O de spec-2-2 (topologie), non-régression 2.1',
         { lat: 46.0, lon: 6.0 },
         { lat: 45.77, lon: 4.87 },
       ])
+    })
+
+    it('deux qualifications rapides ne remplacent pas le premier rôle choisi', async () => {
+      const user = userEvent.setup()
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+      cliquerCarte(45.76, 4.86)
+      const groupe = screen.getByRole('group', { name: 'Qualifier ce point' })
+      const etape = within(groupe).getByRole('button', { name: 'Étape utilisateur' })
+      const destination = within(groupe).getByRole('button', { name: 'Destination' })
+
+      act(() => {
+        etape.click()
+        destination.click()
+      })
+
+      expect(screen.getAllByRole('listitem')[1]).toHaveTextContent('Étape utilisateur')
+      expect(calculerParcours).not.toHaveBeenCalled()
+    })
+
+    it('erreur fournisseur après qualification Destination : affiche l’erreur structurée', async () => {
+      const user = userEvent.setup()
+      vi.mocked(calculerParcours).mockRejectedValue(
+        new ApiError(502, {
+          code: 'MOTEUR_ROUTAGE_INDISPONIBLE',
+          message: 'Le moteur de routage est indisponible. Réessayez plus tard.',
+          details: {},
+          correlationId: 'abc',
+        }),
+      )
+
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.75, 4.85)
+      await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+      cliquerCarte(45.76, 4.86)
+      await user.click(screen.getByRole('button', { name: 'Destination' }))
+
+      expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
+    })
+
+    it('borne frontend : limite le parcours à 50 points visibles', async () => {
+      const user = userEvent.setup()
+      render(<Atelier onRetourAccueil={vi.fn()} />)
+      cliquerCarte(45.0, 5.0)
+      await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
+      for (let index = 1; index <= 50; index += 1) {
+        cliquerCarte(45.0 + index * 0.0001, 5.0 + index * 0.0001)
+      }
+
+      expect(screen.getAllByTestId('marqueur')).toHaveLength(50)
+      expect(screen.getByRole('status')).toHaveTextContent('Limite de 50 points atteinte')
     })
   })
 
@@ -618,7 +737,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
 
     const items = screen.getAllByRole('listitem')
     expect(items[0]).toHaveTextContent('Départ')
-    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[0]).getByRole('button', { name: /Supprimer/ }))
 
     // Le point restant (ex-Destination) devient le nouveau Départ à sa
     // position d'origine ; plus de Destination donc plus de calcul déclenché
@@ -646,7 +765,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
 
     const items = screen.getAllByRole('listitem')
     expect(items).toHaveLength(1)
-    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[0]).getByRole('button', { name: /Supprimer/ }))
 
     expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
     expect(screen.queryByRole('region', { name: 'Parcours en cours' })).not.toBeInTheDocument()
@@ -655,6 +774,17 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     // le choix de topologie de nouveau imposé.
     cliquerCarte(45.8, 4.9)
     expect(await screen.findByRole('region', { name: 'Choix de la topologie' })).toBeInTheDocument()
+  })
+
+  it('Départ seul : peut être supprimé avant le choix de topologie', async () => {
+    const user = userEvent.setup()
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+
+    await user.click(screen.getByRole('button', { name: 'Supprimer le Départ' }))
+
+    expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
+    expect(screen.queryByRole('region', { name: 'Choix de la topologie' })).not.toBeInTheDocument()
   })
 
   it('suppression d’un point qui n’est pas le Départ : simplement retiré, liste et carte synchronisées, recalcul', async () => {
@@ -677,7 +807,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     items = screen.getAllByRole('listitem')
     expect(items).toHaveLength(3)
     const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
-    await user.click(within(items[1]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[1]).getByRole('button', { name: /Supprimer/ }))
 
     const nouveauxItems = screen.getAllByRole('listitem')
     expect(nouveauxItems).toHaveLength(2)
@@ -728,7 +858,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
 
     // Fait remonter le Point de passage (index 2) au-dessus de l'Étape
     // utilisateur (index 1).
-    await user.click(within(items[2]).getByRole('button', { name: 'Monter' }))
+    await user.click(within(items[2]).getByRole('button', { name: /Monter/ }))
 
     const nouveauxItems = screen.getAllByRole('listitem')
     expect(nouveauxItems[1]).toHaveTextContent('Point de passage')
@@ -741,9 +871,25 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
       { lat: 45.76, lon: 4.86 },
       { lat: 45.77, lon: 4.87 },
     ])
+
+    // Le mouvement inverse (Descendre) restaure l'ordre précédent et
+    // transmet bien ce nouvel ordre au recalcul.
+    const apresMontee = screen.getAllByRole('listitem')
+    const calculsAvantDescente = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(within(apresMontee[1]).getByRole('button', { name: /Descendre/ }))
+    const apresDescente = screen.getAllByRole('listitem')
+    expect(apresDescente[1]).toHaveTextContent('Étape utilisateur')
+    expect(apresDescente[2]).toHaveTextContent('Point de passage')
+    await waitFor(() => expect(vi.mocked(calculerParcours).mock.calls.length).toBe(calculsAvantDescente + 1))
+    expect(vi.mocked(calculerParcours).mock.calls.at(-1)?.[0]).toEqual([
+      { lat: 45.75, lon: 4.85 },
+      { lat: 45.76, lon: 4.86 },
+      { lat: 45.78, lon: 4.88 },
+      { lat: 45.77, lon: 4.87 },
+    ])
   })
 
-  it('réordonnancement : le bouton "Monter" sur le premier Point de passage est un no-op (jamais devant le Départ)', async () => {
+  it('réordonnancement : le bouton "Monter" du premier Point de passage est désactivé et nommé', async () => {
     const user = userEvent.setup()
     render(<Atelier onRetourAccueil={vi.fn()} />)
 
@@ -752,7 +898,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     cliquerCarte(45.76, 4.86) // point de passage n°1
 
     const items = screen.getAllByRole('listitem')
-    await user.click(within(items[1]).getByRole('button', { name: 'Monter' }))
+    expect(within(items[1]).getByRole('button', { name: 'Monter Point de passage 1' })).toBeDisabled()
 
     const memeItems = screen.getAllByRole('listitem')
     expect(memeItems[0]).toHaveTextContent('Départ')
@@ -780,6 +926,51 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     await screen.findByTestId('trace')
   })
 
+  it('suppression pendant un calcul en vol : annule le statut de chargement quand le parcours devient incomplet', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockImplementation(() => new Promise<ResultatParcours>(() => undefined))
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    expect(await screen.findByRole('status')).toHaveTextContent('Calcul du parcours…')
+
+    const destination = screen.getAllByRole('listitem').at(-1)
+    expect(destination).toBeDefined()
+    await user.click(within(destination as HTMLElement).getByRole('button', { name: /Supprimer/ }))
+
+    await waitFor(() => expect(screen.queryByText('Calcul du parcours…')).not.toBeInTheDocument())
+  })
+
+  it('déplacement d’un point non routé : retire l’ancien bandeau même si le recalcul échoue', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours)
+      .mockResolvedValueOnce({
+        ...RESULTAT_ROUTE_DEFAUT,
+        statut: 'non_route',
+        geometrie: [],
+        pointsNonRoutes: [{ lat: 45.76, lon: 4.86 }],
+      })
+      .mockRejectedValueOnce(
+        new ApiError(502, {
+          code: 'MOTEUR_ROUTAGE_INDISPONIBLE',
+          message: 'Le moteur de routage est indisponible. Réessayez plus tard.',
+          details: {},
+          correlationId: 'abc',
+        }),
+      )
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    expect(await screen.findByText(/non rattachable/)).toBeInTheDocument()
+
+    glisserMarqueur(45.76, 4.86, 45.9, 4.95)
+
+    expect(await screen.findByText(/moteur de routage est indisponible/)).toBeInTheDocument()
+    expect(screen.queryByText(/non rattachable/)).not.toBeInTheDocument()
+  })
+
   it('suppression de la Destination (aller simple, un point de passage déjà inséré) : le tracé obsolète disparaît, le clic suivant re-qualifie une nouvelle Destination', async () => {
     const user = userEvent.setup()
     vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
@@ -795,7 +986,7 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
     let items = screen.getAllByRole('listitem')
     expect(items[1]).toHaveTextContent('Point de passage')
     expect(items[2]).toHaveTextContent('Destination')
-    await user.click(within(items[2]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[2]).getByRole('button', { name: /Supprimer/ }))
 
     // Plus de Destination qualifiée : le dernier tracé (qui décrivait des
     // points qui n'existent plus) ne doit jamais rester affiché tel quel.
@@ -816,6 +1007,36 @@ describe('Atelier — édition d’un parcours déjà posé (spec-2-3)', () => {
 })
 
 describe('Atelier — inversion du sens (spec-2-4)', () => {
+  it('Boucle avec un seul Point de passage : « Inverser » relance tout de même le calcul', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Boucle' }))
+    cliquerCarte(45.76, 4.86)
+    await screen.findByTestId('trace')
+
+    const nombreCalculsAvant = vi.mocked(calculerParcours).mock.calls.length
+    await user.click(screen.getByRole('button', { name: 'Inverser' }))
+
+    await waitFor(() => expect(calculerParcours).toHaveBeenCalledTimes(nombreCalculsAvant + 1))
+  })
+
+  it('conserve les identifiants et métadonnées des points lors de l’inversion', () => {
+    const points: PointAtelier[] = [
+      { id: 'depart-stable', role: 'depart', lat: 45.75, lon: 4.85, nonRoute: true },
+      { id: 'passage-stable', role: 'etape_utilisateur', lat: 46, lon: 6, nonRoute: true, numero: 7 },
+      { id: 'destination-stable', role: 'destination', lat: 45.76, lon: 4.86, nonRoute: false },
+    ]
+
+    expect(inverserPoints(points, 'aller_simple')).toEqual([
+      { id: 'destination-stable', role: 'depart', lat: 45.76, lon: 4.86, nonRoute: false, numero: undefined },
+      { id: 'passage-stable', role: 'etape_utilisateur', lat: 46, lon: 6, nonRoute: true, numero: 7 },
+      { id: 'depart-stable', role: 'destination', lat: 45.75, lon: 4.85, nonRoute: true, numero: undefined },
+    ])
+  })
+
   it('Boucle avec 2 Points de passage : « Inverser » garde le Départ, inverse l’ordre des Points de passage, recalcule', async () => {
     const user = userEvent.setup()
     vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
@@ -923,13 +1144,13 @@ describe('Atelier — inversion du sens (spec-2-4)', () => {
     // Suppression du Point de passage (seul point restant après le Départ) :
     // la Boucle redevient incomplète, le bouton disparaît.
     let items = screen.getAllByRole('listitem')
-    await user.click(within(items[1]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[1]).getByRole('button', { name: /Supprimer/ }))
     expect(screen.getAllByTestId('marqueur')).toHaveLength(1)
     expect(screen.queryByRole('button', { name: 'Inverser' })).not.toBeInTheDocument()
 
     // Retour à l'état vide, puis Aller simple sans Destination : incomplet.
     items = screen.getAllByRole('listitem')
-    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[0]).getByRole('button', { name: /Supprimer/ }))
     expect(screen.queryAllByTestId('marqueur')).toHaveLength(0)
 
     cliquerCarte(45.75, 4.85) // départ
@@ -939,7 +1160,7 @@ describe('Atelier — inversion du sens (spec-2-4)', () => {
     // Retour à l'état vide, puis Multi-étapes avec une Destination qualifiée :
     // hors scope de cette story, jamais de bouton même une fois complet.
     items = screen.getAllByRole('listitem')
-    await user.click(within(items[0]).getByRole('button', { name: 'Supprimer ce point' }))
+    await user.click(within(items[0]).getByRole('button', { name: /Supprimer/ }))
 
     cliquerCarte(45.75, 4.85) // départ
     await user.click(screen.getByRole('button', { name: 'Multi-étapes' }))
@@ -1372,7 +1593,7 @@ describe('Atelier — numérotation des points de passage', () => {
     // Fait remonter le 2e point de passage au-dessus du 1er : seul l'ordre
     // change, chaque point garde le numéro qui lui a été attribué à sa
     // création (pas de renumérotation 1/2 par position).
-    await user.click(within(items[2]).getByRole('button', { name: 'Monter' }))
+    await user.click(within(items[2]).getByRole('button', { name: /Monter/ }))
 
     items = screen.getAllByRole('listitem')
     expect(items[1]).toHaveTextContent('Point de passage 2')

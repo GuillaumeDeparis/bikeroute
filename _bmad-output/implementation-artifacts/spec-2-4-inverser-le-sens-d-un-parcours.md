@@ -62,6 +62,11 @@ context:
 - [x] `frontend/src/pages/Atelier.tsx` -- (patch review) commentaire de `inverserSens` affirmant à tort ne dépendre d'aucune fermeture du composant, alors qu'il lit encore `topologie` -- précisé (sans risque, `topologie` ne change jamais de façon concurrente à une inversion)
 - [x] `frontend/src/pages/Atelier.test.tsx` -- (patch review) 3 scénarios manquants ajoutés : statut "Mise à jour…" pendant le recalcul après inversion, Aller simple à deux Points de passage (l'ordre complet est inversé, pas seulement les extrémités), et inversion appliquée deux fois de suite (retour à l'ordre initial)
 
+### Review Findings
+
+- [x] [Review][Patch] Garantir un recalcul après chaque inversion, y compris une Boucle avec un seul Point de passage [`frontend/src/pages/Atelier.tsx`]
+- [x] [Review][Patch] Vérifier par test que l'inversion conserve les `id`, `nonRoute` et autres métadonnées des points [`frontend/src/pages/Atelier.test.tsx`]
+
 **Acceptance Criteria:**
 - Given j'ai un parcours de type Boucle, when je déclenche Inverser, then le sens de parcours est inversé (ordre des Points de passage) et le tracé est recalculé.
 - Given j'ai un parcours de type Aller simple, when je déclenche Inverser, then le départ et l'arrivée sont échangés et le tracé est recalculé en conséquence.
@@ -77,6 +82,7 @@ context:
 **Commands:**
 - `cd frontend && npm run test` -- `Atelier.test.tsx` (nouveaux scénarios + non-régression) passent
 - `cd frontend && npx tsc -b && npx oxlint` -- aucune erreur
+- Revue CR 2-4 : 6 fichiers de tests, 76 tests passés ; TypeScript, oxlint et `git diff --check` passent.
 
 **Manual checks (if no CLI):**
 - Boucle avec 2 points de passage, cliquer "Inverser" : le Départ ne bouge pas, le tracé se recalcule dans l'autre sens.

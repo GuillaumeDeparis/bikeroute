@@ -105,7 +105,15 @@ function App() {
     return (
       <>
         <AppHeader identifiant={vue.identifiant} onDeconnexion={() => setVue({ nom: 'connexion' })} />
-        <Atelier onRetourAccueil={() => setVue({ nom: 'accueil', identifiant: vue.identifiant })} />
+        <Atelier
+          onRetourAccueil={() => setVue({ nom: 'accueil', identifiant: vue.identifiant })}
+          onSessionExpiree={() =>
+            setVue({
+              nom: 'connexion',
+              messageExpiration: 'Votre session a expiré. Reconnectez-vous pour continuer.',
+            })
+          }
+        />
       </>
     )
   }

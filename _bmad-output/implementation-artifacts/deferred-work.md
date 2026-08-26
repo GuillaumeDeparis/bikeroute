@@ -101,3 +101,9 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-éditer-un-parcours-sur-la-carte.md`
   summary: Le rattachement "non routé" (`nonRoute`) associe un point à sa réponse via une clé `${lat}:${lon}` plutôt que via son `id` stable -- deux points partageant exactement les mêmes coordonnées deviennent indiscernables pour cet état.
   evidence: Convention héritée de la Story 2.1 (avant l'existence d'un `id` par point), donc pas causée par cette story ; mais le déplacement de point par glisser-déposer (2.3) rend une collision de coordonnées nettement plus atteignable qu'avant (déposer un marqueur exactement sur un autre). Probabilité réelle faible (précision flottante d'un glisser souris), mais signalée indépendamment par deux couches de revue.
+## Deferred from: code review of spec-2-2-choisir-et-représenter-le-type-de-parcours.md (2026-08-25)
+
+- Remplacer l’appariement frontend des points non routés par coordonnée par un contrat positionnel non ambigu (indices ou identifiants). Le problème existait déjà en Story 2.1 avec des coordonnées coïncidentes ; les nouvelles topologies ne fournissent toujours pas l’identité du point dans la réponse backend.
+## Deferred from: code review of spec-2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé (2026-08-25)
+
+- Durcir la validation de la structure historique de la réponse Valhalla `/route` : types de `body`/`trip`/`legs`, nombre de legs attendu, géométries vides ou discontinues, afin de traduire toute réponse malformée en `RoutingProviderError` plutôt qu'en erreur 500 brute.

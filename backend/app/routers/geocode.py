@@ -9,6 +9,8 @@ le `User-Agent` identifiant requis par la politique d'usage Nominatim."""
 
 from __future__ import annotations
 
+import math
+
 import httpx
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -63,8 +65,19 @@ def geocode(
     except ValueError as exc:
         raise _recherche_indisponible() from exc
 
-    return [
-        ResultatRecherche(label=str(item.get("display_name", "")), lat=float(item["lat"]), lon=float(item["lon"]))
-        for item in body
-        if "lat" in item and "lon" in item
-    ]
+    if not isinstance(body, list):
+        raise _recherche_indisponible()
+
+    resultats: list[ResultatRecherche] = []
+    try:
+        for item in body:
+            if not isinstance(item, dict) or "lat" not in item or "lon" not in item:
+                continue
+            lat = float(item["lat"])
+            lon = float(item["lon"])
+            if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
+                continue
+            resultats.append(ResultatRecherche(label=str(item.get("display_name", "")), lat=lat, lon=lon))
+    except (TypeError, ValueError) as exc:
+        raise _recherche_indisponible() from exc
+    return resultats

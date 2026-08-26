@@ -79,8 +79,8 @@ def test_calcul_reussi_persiste_et_renvoie_le_trace(client: TestClient, db_sessi
     # toujours présent, NFR-10 -- `FakeRoutingProvider` ne fournit aucun
     # `surface_segments`/`road_class_segments`), profil point-à-point et
     # montées significatives exposés par la même méthode versionnée.
-    assert body["metriques"]["revetements"] == {"inconnu": 0.0}
-    assert body["metriques"]["categories_routieres"] == {"inconnu": 0.0}
+    assert body["metriques"]["revetements"] == {"inconnu": 1.0}
+    assert body["metriques"]["categories_routieres"] == {"inconnu": 1.0}
     assert len(body["metriques"]["profil"]) == 2
     assert body["metriques"]["profil"][0] == {"distance_m": 0.0, "elevation_m": 100.0}
     assert body["metriques"]["profil"][1]["elevation_m"] == 140.0
@@ -97,7 +97,10 @@ def test_calcul_reussi_persiste_et_renvoie_le_trace(client: TestClient, db_sessi
     # -- même garde que `geometry` ci-dessus.
     assert rows[0].metrics is not None
     assert rows[0].metrics["denivele_positif_m"] == pytest.approx(40.0)
-    assert rows[0].metrics["revetements"] == {"inconnu": 0.0}
+    assert rows[0].metrics["revetements"] == body["metriques"]["revetements"]
+    assert rows[0].metrics["categories_routieres"] == body["metriques"]["categories_routieres"]
+    assert rows[0].metrics["profil"] == body["metriques"]["profil"]
+    assert rows[0].metrics["montees_significatives"] == body["metriques"]["montees_significatives"]
     assert rows[0].metrics_version == body["metriques"]["version"]
 
 
@@ -129,6 +132,30 @@ def test_calcul_a_plus_de_deux_points_est_accepte(client: TestClient, db_session
     rows = list(db_session.execute(select(RouteModel)).scalars())
     assert len(rows) == 1
     assert rows[0].statut == "routed"
+
+
+def test_borne_de_points_accepte_50_et_rejette_51(client: TestClient) -> None:
+    _inscrire_et_connecter(client)
+    points_50 = [{"lat": 45.0 + index * 0.0001, "lon": 5.0 + index * 0.0001} for index in range(50)]
+    geometry = tuple(Coordinate(lat=point["lat"], lon=point["lon"]) for point in points_50)
+    provider = FakeRoutingProvider(
+        result=RouteResult(
+            geometry=geometry,
+            unrouted_points=(),
+            provider="valhalla",
+            version="3.8.3",
+            duration_s=600.0,
+        )
+    )
+    _override_provider(provider)
+    _override_elevation_provider()
+
+    accepte = client.post("/api/routes/calculate", json={"points": points_50})
+    rejete = client.post("/api/routes/calculate", json={"points": [*points_50, {"lat": 46.0, "lon": 6.0}]})
+
+    assert accepte.status_code == 201
+    assert rejete.status_code == 422
+    assert len(provider.calls) == 1
 
 
 def test_point_non_routable_est_marque_sans_segment_direct(client: TestClient, db_session) -> None:

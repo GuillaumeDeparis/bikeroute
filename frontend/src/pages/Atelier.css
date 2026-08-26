@@ -193,6 +193,7 @@
 
 .atelier__actions {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   margin-left: 0.5rem;
 }

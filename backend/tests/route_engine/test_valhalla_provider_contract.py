@@ -151,6 +151,53 @@ def test_route_plus_de_deux_points_concatene_tous_les_legs() -> None:
     assert result.duration_s == 340.0
 
 
+@pytest.mark.parametrize(
+    "legs",
+    [
+        None,
+        [{"shape": _ROUTE_SHAPE}],  # un seul leg pour trois points
+        [{"shape": ""}, {"shape": _ROUTE_SHAPE}],
+        [{"shape": _encode_polyline6([(45.0, 5.0), (45.001, 5.001)])}, "invalide"],
+    ],
+    ids=["type-invalide", "leg-manquant", "leg-vide", "leg-non-objet"],
+)
+def test_route_multi_legs_rejette_une_structure_incomplete_ou_malformee(legs: object) -> None:
+    waypoint = Coordinate(lat=45.001, lon=5.001)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY] * 3)
+        if request.url.path == "/route":
+            return httpx.Response(200, json={"trip": {"legs": legs, "summary": {"time": 340.0}}})
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    with pytest.raises(RoutingProviderError):
+        _provider(handler).route([DEPART, waypoint, DEPART])
+
+
+def test_route_multi_legs_rejette_une_jonction_discontinue() -> None:
+    waypoint = Coordinate(lat=45.001, lon=5.001)
+    leg1 = _encode_polyline6([(45.0, 5.0), (45.001, 5.001)])
+    leg2 = _encode_polyline6([(46.0, 6.0), (45.0, 5.0)])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY] * 3)
+        if request.url.path == "/route":
+            return httpx.Response(
+                200,
+                json={"trip": {"legs": [{"shape": leg1}, {"shape": leg2}], "summary": {"time": 340.0}}},
+            )
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    with pytest.raises(RoutingProviderError, match="discontinus"):
+        _provider(handler).route([DEPART, waypoint, DEPART])
+
+
 def test_point_hors_reseau_est_marque_non_route_sans_appeler_route() -> None:
     appels_route = []
 
@@ -173,7 +220,7 @@ def test_point_hors_reseau_est_marque_non_route_sans_appeler_route() -> None:
     assert appels_route == []
 
 
-def test_erreur_route_apres_locate_optimiste_est_traitee_comme_non_route() -> None:
+def test_erreur_route_apres_locate_optimiste_leve_une_erreur_fournisseur() -> None:
     """Course rare (cf. commentaire de l'adaptateur) : `/locate` juge les
     deux points rattachables mais `/route` échoue quand même (400, réponse
     Valhalla réelle capturée : `error_code` 171)."""
@@ -192,10 +239,33 @@ def test_erreur_route_apres_locate_optimiste_est_traitee_comme_non_route() -> No
 
     provider = _provider(handler)
 
-    result = provider.route([DEPART, DESTINATION])
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
 
-    assert result.geometry == ()
-    assert result.unrouted_points == (DEPART, DESTINATION)
+
+@pytest.mark.parametrize("body", [{"error": "bad request"}, [None, _LOCATE_RATTACHABLE_ENTRY]])
+def test_locate_de_forme_inattendue_leve_routing_provider_error(body: object) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=body)
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    with pytest.raises(RoutingProviderError):
+        _provider(handler).route([DEPART, DESTINATION])
+
+
+def test_status_json_non_objet_ne_bloque_pas_le_calcul() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=[])
+        if request.url.path == "/locate":
+            return httpx.Response(503)
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    with pytest.raises(RoutingProviderError, match="503"):
+        _provider(handler).route([DEPART, DESTINATION])
 
 
 def test_erreur_serveur_leve_routing_provider_error() -> None:
@@ -294,6 +364,14 @@ def test_trace_attributes_reponse_sans_edges_leve_routing_provider_error() -> No
         provider.route([DEPART, DESTINATION])
 
 
+@pytest.mark.parametrize("body", [[], {"edges": None}, {"edges": {}}])
+def test_trace_attributes_reponse_de_structure_inattendue_leve_routing_provider_error(body: object) -> None:
+    provider = _provider(_handler_route_ok_avec_trace_attributes(httpx.Response(200, json=body)))
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
 def test_trace_attributes_edge_non_objet_leve_routing_provider_error() -> None:
     """Revue post-implémentation : un élément d'`edges` qui n'est pas un
     objet (ex. une chaîne, dans un corps par ailleurs malformé) ferait lever
@@ -318,6 +396,15 @@ def test_trace_attributes_longueur_booleenne_ou_negative_leve_routing_provider_e
         httpx.Response(200, json={"edges": [{"length": longueur_invalide, "surface": "paved"}]})
     )
     provider = _provider(handler)
+
+    with pytest.raises(RoutingProviderError):
+        provider.route([DEPART, DESTINATION])
+
+
+@pytest.mark.parametrize("longueur_json", ["NaN", "Infinity", "-Infinity"])
+def test_trace_attributes_longueur_non_finie_leve_routing_provider_error(longueur_json: str) -> None:
+    response = httpx.Response(200, content=f'{{"edges":[{{"length":{longueur_json}}}]}}'.encode())
+    provider = _provider(_handler_route_ok_avec_trace_attributes(response))
 
     with pytest.raises(RoutingProviderError):
         provider.route([DEPART, DESTINATION])
@@ -380,3 +467,27 @@ def test_duree_du_trajet_booleenne_ou_negative_leve_routing_provider_error(temps
 
     with pytest.raises(RoutingProviderError):
         provider.route([DEPART, DESTINATION])
+
+
+@pytest.mark.parametrize("temps_json", ["NaN", "Infinity", "-Infinity"])
+def test_duree_du_trajet_non_finie_leve_routing_provider_error(temps_json: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/status":
+            return httpx.Response(200, json=_STATUS_BODY)
+        if request.url.path == "/locate":
+            return httpx.Response(200, json=[_LOCATE_RATTACHABLE_ENTRY, _LOCATE_RATTACHABLE_ENTRY])
+        if request.url.path == "/route":
+            return httpx.Response(
+                200,
+                content=(
+                    '{"trip":{"legs":[{"shape":"'
+                    + _ROUTE_SHAPE
+                    + '"}],"summary":{"time":'
+                    + temps_json
+                    + "}}}"
+                ).encode(),
+            )
+        raise AssertionError(f"URL inattendue : {request.url}")
+
+    with pytest.raises(RoutingProviderError):
+        _provider(handler).route([DEPART, DESTINATION])

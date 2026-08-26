@@ -91,6 +91,24 @@ def test_reponse_sans_cle_height_leve_elevation_provider_error() -> None:
         provider.elevations((DEPART, DESTINATION))
 
 
+@pytest.mark.parametrize("body", [[], {"height": None}, {"height": 42}])
+def test_reponse_de_structure_inattendue_leve_elevation_provider_error(body: object) -> None:
+    provider = _provider(lambda request: httpx.Response(200, json=body))
+
+    with pytest.raises(ElevationProviderError):
+        provider.elevations((DEPART, DESTINATION))
+
+
+@pytest.mark.parametrize("altitude_json", ["NaN", "Infinity", "-Infinity"])
+def test_altitude_non_finie_leve_elevation_provider_error(altitude_json: str) -> None:
+    provider = _provider(
+        lambda request: httpx.Response(200, content=f'{{"height":[186.0,{altitude_json}]}}'.encode())
+    )
+
+    with pytest.raises(ElevationProviderError):
+        provider.elevations((DEPART, DESTINATION))
+
+
 def test_erreur_serveur_leve_elevation_provider_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, text="indisponible")
