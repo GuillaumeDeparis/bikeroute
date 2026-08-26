@@ -178,6 +178,26 @@ function RecentrageRecherche({ centre }: { centre: [number, number] | null }) {
   return null
 }
 
+/** Ajuste la vue sur l'étendue complète d'un parcours réouvert depuis « Mes
+ * parcours » (spec-2-6) : contrairement à `RecentrageInitial` (qui préserve
+ * le zoom courant pour un point posé à la main), une réouverture démarre
+ * sans aucune vue pertinente -- le zoom par défaut ne montre presque jamais
+ * le tracé entier. Ne s'exécute qu'une fois au montage (délibérément sans
+ * dépendance : l'Atelier est remonté à chaque réouverture via la `key`
+ * d'`App.tsx`, jamais réutilisé pour un autre parcours). `maxZoom` plafonné
+ * à `ZOOM_SUR_POINT` : un très court tracé (deux points proches) ne doit pas
+ * zoomer plus près qu'un simple résultat de recherche. */
+function RecentrageParcoursOuvert({ points }: { points: [number, number][] }) {
+  const map = useMap()
+  useEffect(() => {
+    if (points.length > 0) {
+      map.fitBounds(points, { padding: [32, 32], maxZoom: ZOOM_SUR_POINT })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return null
+}
+
 /** "42 %" -- proportion (0..1) de revêtement/catégorie routière, arrondie au
  * pourcent le plus proche (pas de décimale, cf. registre de `formatDenivele`). */
 function formatPourcentage(proportion: number): string {
@@ -1294,6 +1314,11 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
           <EcouteurClicCarte onClic={poserPoint} />
           <RecentrageInitial centre={premierPointPose} />
           <RecentrageRecherche centre={focusRecherche} />
+          {parcoursAOuvrir && (
+            <RecentrageParcoursOuvert
+              points={(parcoursAOuvrir.geometrie ?? []).map((point) => [point.lat, point.lon])}
+            />
+          )}
           {points.map((point) => (
             <Marker
               // `numero` inclus dans la clé (pas seulement `point.id`) :

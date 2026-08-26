@@ -54,7 +54,7 @@ vi.mock('react-leaflet', () => ({
   Polyline: ({ positions }: { positions: [number, number][] }) => (
     <div data-testid="trace" data-points={JSON.stringify(positions)} />
   ),
-  useMap: () => ({ setView: vi.fn(), getZoom: () => 13 }),
+  useMap: () => ({ setView: vi.fn(), getZoom: () => 13, fitBounds: vi.fn() }),
   useMapEvents: (handlers: { click?: (event: { latlng: { lat: number; lng: number } }) => void }) => {
     dernierGestionnaireClic = handlers.click
     return { setView: vi.fn() }
