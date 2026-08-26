@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, listerParcours, obtenirParcours, type ParcoursResume, type ResultatParcours } from '../api/client'
 import { formatDenivele, formatDistance, formatDuree, libelleDifficulte } from './Atelier.format'
 import './MesParcours.css'
@@ -30,6 +30,14 @@ export function MesParcours({ onRetourAccueil, onCreerParcours, onOuvrirParcours
   const [tentative, setTentative] = useState(0)
   const [idEnOuverture, setIdEnOuverture] = useState<string | undefined>(undefined)
   const [erreurOuverture, setErreurOuverture] = useState<string | undefined>(undefined)
+  const estMonteRef = useRef(true)
+
+  useEffect(() => {
+    estMonteRef.current = true
+    return () => {
+      estMonteRef.current = false
+    }
+  }, [])
 
   function reessayer() {
     setEtat({ statut: 'chargement' })
@@ -71,8 +79,13 @@ export function MesParcours({ onRetourAccueil, onCreerParcours, onOuvrirParcours
     setErreurOuverture(undefined)
     try {
       const parcours = await obtenirParcours(id)
-      onOuvrirParcours(parcours)
+      if (estMonteRef.current) {
+        onOuvrirParcours(parcours)
+      }
     } catch (error) {
+      if (!estMonteRef.current) {
+        return
+      }
       if (error instanceof ApiError && error.status === 401) {
         onSessionExpiree?.()
         return
@@ -81,7 +94,9 @@ export function MesParcours({ onRetourAccueil, onCreerParcours, onOuvrirParcours
         error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
       )
     } finally {
-      setIdEnOuverture(undefined)
+      if (estMonteRef.current) {
+        setIdEnOuverture(undefined)
+      }
     }
   }
 
@@ -142,8 +157,8 @@ export function MesParcours({ onRetourAccueil, onCreerParcours, onOuvrirParcours
                   </span>
                   {parcours.etiquettes.length > 0 && (
                     <span className="mes-parcours__etiquettes">
-                      {parcours.etiquettes.map((etiquette) => (
-                        <span key={etiquette} className="mes-parcours__etiquette">
+                      {parcours.etiquettes.map((etiquette, index) => (
+                        <span key={`${etiquette}-${index}`} className="mes-parcours__etiquette">
                           {etiquette}
                         </span>
                       ))}

@@ -70,6 +70,15 @@ baseline_commit: '6d4e7e674cd3c80c59bd4a9959e4a1e52524a7f7'
 - [x] `frontend/src/pages/Atelier.tsx`, `Atelier.css` -- bouton Exporter, téléchargement, confirmation
 - [x] `backend/tests/...`, `frontend/src/pages/Atelier.test.tsx` -- matrice I/O ci-dessus
 
+### Review Findings
+
+- [x] [Review][Patch] Afficher explicitement l'action « Réessayer » après un échec d'export, comme l'exige l'AC [frontend/src/pages/Atelier.tsx:1352]
+- [x] [Review][Patch] Empêcher une réponse d'export tardive de télécharger et confirmer l'ancien parcours après une édition [frontend/src/pages/Atelier.tsx:1017]
+- [x] [Review][Patch] Garantir le nettoyage du lien temporaire et de l'URL Blob même si le déclenchement du téléchargement échoue [frontend/src/pages/Atelier.tsx:1022]
+- [x] [Review][Patch] Différer la révocation de l'URL Blob pour laisser le navigateur amorcer le téléchargement [frontend/src/pages/Atelier.tsx:1027]
+- [x] [Review][Patch] Tester le vrai client exporterParcours : requête, Blob, nom de fichier, repli et erreur API [frontend/src/api/client.test.ts:158]
+- [x] [Review][Patch] Vérifier que le lien de téléchargement est effectivement cliqué avec le bon href et le bon nom [frontend/src/pages/Atelier.test.tsx:1963]
+
 **Acceptance Criteria:**
 - Given un parcours calculé, when je déclenche Exporter, then un fichier GPX standard est généré avec tracé, points de passage et altitudes, exploitable sans dépendance à l'application.
 - Given l'export réussit, when la confirmation s'affiche, then le nom du fichier exporté est confirmé et je peux revenir au parcours ou préparer un autre parcours.

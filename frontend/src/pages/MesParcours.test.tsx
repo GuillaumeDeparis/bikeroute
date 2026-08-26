@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MesParcours } from './MesParcours'
 import { ApiError, listerParcours, obtenirParcours, type ParcoursResume, type ResultatParcours } from '../api/client'
@@ -131,6 +131,38 @@ describe('MesParcours — liste et réouverture (spec-2-6)', () => {
 
     await waitFor(() => expect(obtenirParcours).toHaveBeenCalledWith('p1'))
     await waitFor(() => expect(onOuvrirParcours).toHaveBeenCalledWith(parcoursComplet))
+  })
+
+  it("ignore une réponse de détail arrivée après avoir quitté Mes parcours", async () => {
+    const user = userEvent.setup()
+    let resoudreOuverture: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(listerParcours).mockResolvedValue([PARCOURS_RESUME])
+    vi.mocked(obtenirParcours).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resoudreOuverture = resolve
+        }),
+    )
+    const onOuvrirParcours = vi.fn()
+
+    const vue = render(
+      <MesParcours onRetourAccueil={vi.fn()} onCreerParcours={vi.fn()} onOuvrirParcours={onOuvrirParcours} />,
+    )
+    await user.click(await screen.findByRole('button', { name: /Boucle du dimanche/ }))
+    vue.unmount()
+
+    await act(async () => {
+      resoudreOuverture?.({
+        id: 'p1',
+        statut: 'routed',
+        geometrie: [],
+        pointsNonRoutes: [],
+        fournisseur: 'valhalla',
+        versionFournisseur: '3.8.3',
+        createdAt: '2026-08-23T00:00:00Z',
+      })
+    })
+    expect(onOuvrirParcours).not.toHaveBeenCalled()
   })
 
   it('échec à la réouverture : message affiché, la liste reste consultable', async () => {

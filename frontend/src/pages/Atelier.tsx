@@ -461,6 +461,11 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
   // (cf. l'effet de calcul ci-dessous) -- cible du `PATCH` d'enregistrement,
   // jamais utilisée pour du rendu au-delà de conditionner ce bouton.
   const [parcoursId, setParcoursId] = useState<string | undefined>(() => parcoursAOuvrir?.id)
+  // Valeur courante accessible depuis les continuations asynchrones : une
+  // sauvegarde lancée avant une édition ne doit pas confirmer le nouveau
+  // tracé lorsque sa réponse arrive plus tard.
+  const parcoursIdRef = useRef(parcoursId)
+  parcoursIdRef.current = parcoursId
   // Réouverture (spec-2-6) : le tout premier passage de l'effet de calcul
   // ci-dessous doit être ignoré -- trace/métriques/parcoursId viennent déjà
   // de la persistance (initialiseurs paresseux ci-dessus), aucun nouvel
@@ -980,6 +985,7 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
     if (!parcoursId || enregistrementEnCours) {
       return
     }
+    const idEnregistre = parcoursId
     const nom = nomSaisie.trim()
     if (!nom) {
       setErreurEnregistrement('Le nom est obligatoire pour enregistrer le parcours.')
@@ -992,16 +998,20 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
     setEnregistrementEnCours(true)
     setErreurEnregistrement(undefined)
     try {
-      await enregistrerParcours(parcoursId, { nom, note: noteSaisie.trim() || undefined, etiquettes })
-      setConfirmationEnregistrement(true)
+      await enregistrerParcours(idEnregistre, { nom, note: noteSaisie.trim() || undefined, etiquettes })
+      if (parcoursIdRef.current === idEnregistre) {
+        setConfirmationEnregistrement(true)
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onSessionExpiree?.()
         return
       }
-      setErreurEnregistrement(
-        error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
-      )
+      if (parcoursIdRef.current === idEnregistre) {
+        setErreurEnregistrement(
+          error instanceof ApiError ? error.message : "Une erreur inattendue s'est produite. Réessayez plus tard.",
+        )
+      }
     } finally {
       setEnregistrementEnCours(false)
     }
@@ -1018,18 +1028,32 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
     if (!parcoursId || exportEnCours) {
       return
     }
+    const idExporte = parcoursId
     setExportEnCours(true)
     setErreurExport(undefined)
     try {
-      const { blob, nomFichier } = await exporterParcours(parcoursId)
+      const { blob, nomFichier } = await exporterParcours(idExporte)
+      // Le parcours a pu être édité/réinitialisé pendant la requête :
+      // ne jamais télécharger ni confirmer l'ancien tracé dans la nouvelle
+      // vue. Le backend conserve normalement l'historique de la requête qui
+      // a bien abouti, mais sa réponse devenue obsolète est ignorée ici.
+      if (parcoursIdRef.current !== idExporte) {
+        return
+      }
       const url = URL.createObjectURL(blob)
       const lien = document.createElement('a')
       lien.href = url
       lien.download = nomFichier
-      document.body.appendChild(lien)
-      lien.click()
-      document.body.removeChild(lien)
-      URL.revokeObjectURL(url)
+      try {
+        document.body.appendChild(lien)
+        lien.click()
+      } finally {
+        lien.remove()
+        // Le clic ne garantit pas que tous les navigateurs ont déjà
+        // consommé le Blob. La révocation au prochain tour de boucle garde
+        // l'URL assez longtemps tout en assurant son nettoyage.
+        window.setTimeout(() => URL.revokeObjectURL(url), 0)
+      }
       setConfirmationExport({ nomFichier })
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -1262,7 +1286,11 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
               <button
                 type="button"
                 className="atelier__ouvrir-enregistrement"
-                onClick={() => setSaveFormOuvert(true)}
+                onClick={() => {
+                  setErreurEnregistrement(undefined)
+                  setConfirmationEnregistrement(false)
+                  setSaveFormOuvert(true)
+                }}
                 disabled={parcoursId === undefined}
               >
                 Enregistrer
@@ -1280,7 +1308,11 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                   <button
                     type="button"
                     className="atelier__enregistrement-fermer"
-                    onClick={() => setSaveFormOuvert(false)}
+                    onClick={() => {
+                      setErreurEnregistrement(undefined)
+                      setConfirmationEnregistrement(false)
+                      setSaveFormOuvert(false)
+                    }}
                     aria-label="Fermer le formulaire d'enregistrement"
                   >
                     ×
@@ -1296,6 +1328,7 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                   required
                   onChange={(event) => {
                     setNomSaisie(event.target.value)
+                    setErreurEnregistrement(undefined)
                     setConfirmationEnregistrement(false)
                   }}
                 />
@@ -1308,6 +1341,7 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                   rows={3}
                   onChange={(event) => {
                     setNoteSaisie(event.target.value)
+                    setErreurEnregistrement(undefined)
                     setConfirmationEnregistrement(false)
                   }}
                 />
@@ -1320,6 +1354,7 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                   placeholder="ex. gravel, weekend"
                   onChange={(event) => {
                     setEtiquettesSaisie(event.target.value)
+                    setErreurEnregistrement(undefined)
                     setConfirmationEnregistrement(false)
                   }}
                 />
@@ -1357,7 +1392,7 @@ export function Atelier({ onRetourAccueil, onSessionExpiree, parcoursAOuvrir }: 
                 onClick={lancerExport}
                 disabled={exportEnCours || parcoursId === undefined}
               >
-                {exportEnCours ? 'Export…' : 'Exporter'}
+                {exportEnCours ? 'Export…' : erreurExport ? 'Réessayer' : 'Exporter'}
               </button>
             )}
 

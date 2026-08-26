@@ -79,6 +79,14 @@ context: []
 - [x] `frontend/src/App.tsx`, `AppHeader.tsx`, `Accueil.tsx` -- câblage de la vue « Mes parcours »
 - [x] `backend/tests/...`, `frontend/src/pages/MesParcours.test.tsx`, `Atelier.test.tsx` -- matrice I/O ci-dessus
 
+### Review Findings
+
+- [x] [Review][Patch] Empêcher une réponse d'enregistrement tardive d'afficher une confirmation pour un tracé modifié entre-temps [frontend/src/pages/Atelier.tsx:949]
+- [x] [Review][Patch] Effacer l'erreur d'enregistrement devenue obsolète lorsque le formulaire est corrigé, fermé ou rouvert [frontend/src/pages/Atelier.tsx:1223]
+- [x] [Review][Patch] Ignorer la réponse tardive de l'ouverture d'un parcours après avoir quitté la vue Mes parcours [frontend/src/pages/MesParcours.tsx:58]
+- [x] [Review][Patch] Ajouter un test d'intégration App couvrant Mes parcours vers l'Atelier préchargé sans recalcul [frontend/src/App.test.tsx:21]
+- [x] [Review][Patch] Garantir des clés React uniques lorsque plusieurs étiquettes ont la même valeur [frontend/src/pages/MesParcours.tsx:137]
+
 **Acceptance Criteria:**
 - Given un parcours prêt (au moins un tracé calculé), when j'ouvre le Save form et saisis un nom (obligatoire), une note et des étiquettes facultatives, then le parcours est enregistré dans ma bibliothèque et une confirmation s'affiche.
 - Given l'enregistrement échoue (réseau/serveur), when je consulte le formulaire, then nom, note et étiquettes sont conservés et je peux réessayer ou revenir à l'éditeur.

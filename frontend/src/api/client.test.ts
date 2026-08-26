@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { calculerParcours, enregistrerParcours, listerParcours, obtenirParcours, rechercherAdresse } from './client'
+import {
+  calculerParcours,
+  enregistrerParcours,
+  exporterParcours,
+  listerParcours,
+  obtenirParcours,
+  rechercherAdresse,
+} from './client'
 
 // `Atelier.test.tsx` mocke tout `../api/client` : le mapping snake_case
 // (réponse backend) -> camelCase (`ResultatParcours`/`ResultatAdresse`) n'y
@@ -390,6 +397,62 @@ describe('obtenirParcours — GET /api/routes/{id}, mapping snake_case -> camelC
     })
 
     await expect(obtenirParcours('inconnu')).rejects.toMatchObject({ status: 404, code: 'RESSOURCE_INTROUVABLE' })
+  })
+})
+
+describe('exporterParcours — POST GPX, Blob et nom de fichier', () => {
+  it("envoie le POST authentifié et renvoie le Blob avec le nom de Content-Disposition", async () => {
+    const blob = new Blob(['<gpx></gpx>'], { type: 'application/gpx+xml' })
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      blob: () => Promise.resolve(blob),
+      headers: new Headers({ 'Content-Disposition': 'attachment; filename="boucle-du-dimanche.gpx"' }),
+    } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultat = await exporterParcours('route 27')
+
+    expect(resultat).toEqual({ blob, nomFichier: 'boucle-du-dimanche.gpx' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/routes/route 27/export', {
+      method: 'POST',
+      credentials: 'include',
+    })
+  })
+
+  it("utilise parcours.gpx lorsque Content-Disposition n'indique aucun nom exploitable", async () => {
+    const blob = new Blob(['<gpx></gpx>'])
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        blob: () => Promise.resolve(blob),
+        headers: new Headers({ 'Content-Disposition': 'attachment' }),
+      } as Response),
+    )
+
+    await expect(exporterParcours('route-id')).resolves.toEqual({ blob, nomFichier: 'parcours.gpx' })
+  })
+
+  it('convertit une réponse en erreur en ApiError structurée', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 422,
+        json: () =>
+          Promise.resolve({
+            code: 'PARCOURS_NON_PRET',
+            message: 'Parcours non prêt.',
+            details: {},
+            correlationId: 'corr-export',
+          }),
+      } as Response),
+    )
+
+    await expect(exporterParcours('route-id')).rejects.toMatchObject({
+      status: 422,
+      code: 'PARCOURS_NON_PRET',
+      message: 'Parcours non prêt.',
+    })
   })
 })
 

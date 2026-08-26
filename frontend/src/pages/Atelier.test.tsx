@@ -1706,6 +1706,58 @@ describe('Atelier — Save form (spec-2-6, UX-DR22)', () => {
     expect(screen.queryByText('Parcours enregistré.')).not.toBeInTheDocument()
   })
 
+  it("corriger ou rouvrir le formulaire efface l'erreur d'enregistrement obsolète", async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(enregistrerParcours).mockRejectedValue(new Error('panne réseau'))
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Enregistrer' }))
+    await user.type(screen.getByLabelText('Nom'), 'Mon parcours')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Nom'), ' corrigé')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: "Fermer le formulaire d'enregistrement" }))
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it("une sauvegarde terminée après l'édition du tracé n'affiche pas de confirmation obsolète", async () => {
+    const user = userEvent.setup()
+    let resoudreEnregistrement: ((valeur: ResultatParcours) => void) | undefined
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(enregistrerParcours).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resoudreEnregistrement = resolve
+        }),
+    )
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Enregistrer' }))
+    await user.type(screen.getByLabelText('Nom'), 'Mon parcours')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(enregistrerParcours).toHaveBeenCalledTimes(1))
+
+    glisserMarqueur(45.76, 4.86, 45.77, 4.87)
+    await act(async () => {
+      resoudreEnregistrement?.({ ...RESULTAT_ROUTE_DEFAUT, nom: 'Mon parcours' })
+    })
+
+    expect(screen.queryByText('Parcours enregistré.')).not.toBeInTheDocument()
+  })
+
   it('éditer le tracé après un enregistrement réussi efface la confirmation devenue obsolète (revue de code)', async () => {
     const user = userEvent.setup()
     let resoudreDeuxiemeCalcul: ((valeur: ResultatParcours) => void) | undefined
@@ -1898,6 +1950,7 @@ describe('Atelier — réouverture d’un parcours enregistré (spec-2-6)', () =
 })
 
 describe('Atelier — Export GPX (spec-2-7)', () => {
+  let lienClique: HTMLAnchorElement | undefined
   // jsdom ne fournit pas `URL.createObjectURL`/`URL.revokeObjectURL` --
   // stubbés ici (pas dans `src/test/setup.ts`, propre à ce fichier) pour
   // que le déclenchement du téléchargement (`lancerExport`) puisse
@@ -1906,9 +1959,12 @@ describe('Atelier — Export GPX (spec-2-7)', () => {
   // (bruit "Not implemented: navigation" en console, sans rapport avec ce
   // qui est testé ici).
   beforeEach(() => {
+    lienClique = undefined
     URL.createObjectURL = vi.fn(() => 'blob:mock-url')
     URL.revokeObjectURL = vi.fn()
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      lienClique = document.querySelector('a[download]') ?? undefined
+    })
   })
 
   afterEach(() => {
@@ -1940,7 +1996,11 @@ describe('Atelier — Export GPX (spec-2-7)', () => {
 
     await waitFor(() => expect(exporterParcours).toHaveBeenCalledWith('r1'))
     expect(URL.createObjectURL).toHaveBeenCalledWith(gpxBlob)
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1)
+    expect(lienClique?.href).toBe('blob:mock-url')
+    expect(lienClique?.download).toBe('boucle-du-dimanche.gpx')
+    expect(lienClique?.isConnected).toBe(false)
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url'))
     expect(await screen.findByText('Fichier « boucle-du-dimanche.gpx » exporté.')).toBeInTheDocument()
     // Bouton « Exporter » remplacé par la confirmation tant qu'elle est affichée.
     expect(screen.queryByRole('button', { name: 'Exporter' })).not.toBeInTheDocument()
@@ -2006,7 +2066,58 @@ describe('Atelier — Export GPX (spec-2-7)', () => {
     expect(screen.queryByText(/exporté\.$/)).not.toBeInTheDocument()
     // Le tracé/parcours reste affiché, réessayer reste possible.
     expect(await screen.findByTestId('trace')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Exporter' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Réessayer' })).not.toBeDisabled()
+  })
+
+  it("ignore une réponse d'export arrivée après l'édition du parcours", async () => {
+    const user = userEvent.setup()
+    let resoudreExport: ((valeur: { blob: Blob; nomFichier: string }) => void) | undefined
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(exporterParcours).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resoudreExport = resolve
+        }),
+    )
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Exporter' }))
+    await waitFor(() => expect(exporterParcours).toHaveBeenCalledWith('r1'))
+
+    glisserMarqueur(45.76, 4.86, 45.77, 4.87)
+    await act(async () => {
+      resoudreExport?.({ blob: new Blob(['<gpx></gpx>']), nomFichier: 'ancien.gpx' })
+    })
+
+    expect(HTMLAnchorElement.prototype.click).not.toHaveBeenCalled()
+    expect(screen.queryByText(/ancien\.gpx/)).not.toBeInTheDocument()
+  })
+
+  it('nettoie le lien et l’URL Blob si le clic de téléchargement échoue', async () => {
+    const user = userEvent.setup()
+    vi.mocked(calculerParcours).mockResolvedValue(RESULTAT_ROUTE_DEFAUT)
+    vi.mocked(exporterParcours).mockResolvedValue({
+      blob: new Blob(['<gpx></gpx>']),
+      nomFichier: 'parcours.gpx',
+    })
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementationOnce(() => {
+      lienClique = document.querySelector('a[download]') ?? undefined
+      throw new Error('clic impossible')
+    })
+
+    render(<Atelier onRetourAccueil={vi.fn()} />)
+    cliquerCarte(45.75, 4.85)
+    await user.click(screen.getByRole('button', { name: 'Aller simple' }))
+    cliquerCarte(45.76, 4.86)
+    await user.click(await screen.findByRole('button', { name: 'Exporter' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(lienClique?.isConnected).toBe(false)
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url'))
+    expect(screen.queryByText(/Fichier/)).not.toBeInTheDocument()
   })
 
   it('parcours non routé : aucun bouton « Exporter » (rien à exporter, cf. Boundaries)', async () => {

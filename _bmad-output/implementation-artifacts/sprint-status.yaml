@@ -50,8 +50,8 @@ development_status:
   2-3-éditer-un-parcours-sur-la-carte: done
   2-4-inverser-le-sens-d-un-parcours: done
   2-5-consulter-les-métriques-le-profil-altimétrique-et-un-résumé: done
-  2-6-enregistrer-un-parcours-dans-sa-bibliothèque: review
-  2-7-exporter-un-parcours-en-gpx: review
+  2-6-enregistrer-un-parcours-dans-sa-bibliothèque: done
+  2-7-exporter-un-parcours-en-gpx: done
   epic-2-retrospective: optional
 
   epic-3: backlog
